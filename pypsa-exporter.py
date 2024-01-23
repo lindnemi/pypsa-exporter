@@ -139,10 +139,17 @@ def get_ariadne_var(n, region):
         MW2GW * get_cap(n.generators, "ror", region) \
         + MW2GW * get_cap(n.storage_units, 'hydro', region)
 
-    # var["Capacity|Electricity|Hydrogen"] = 
+
     # var["Capacity|Electricity|Hydrogen|CC"] = 
-    # var["Capacity|Electricity|Hydrogen|FC"] = 
     # var["Capacity|Electricity|Hydrogen|OC"] = 
+    # Q: What about retrofitted gas power plants?
+    # Q: Are all vars in the Network object, regardless of the params?
+
+    var["Capacity|Electricity|Hydrogen|FC"] = \
+        MW2GW * get_cap(n.generators, "H2 Fuel Cell", region)
+
+    var["Capacity|Electricity|Hydrogen"] = \
+        var["Capacity|Electricity|Hydrogen|FC"]
 
     # var["Capacity|Electricity|Non-Renewable Waste"] = 
 
@@ -152,9 +159,10 @@ def get_ariadne_var(n, region):
 
     # var["Capacity|Electricity|Ocean"] = 
 
-    # var["Capacity|Electricity|Oil"] = 
     # var["Capacity|Electricity|Oil|w/ CCS"] = 
     # var["Capacity|Electricity|Oil|w/o CCS"] = 
+    var["Capacity|Electricity|Oil"] = \
+        MW2GW * get_cap(n.links, "oil", region)
 
     # var["Capacity|Electricity|Other"] = 
 
