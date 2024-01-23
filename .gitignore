@@ -1,0 +1,4 @@
+pypsa_output.xlsx
+*.ipynb
+.~lock*
+*.xlsx

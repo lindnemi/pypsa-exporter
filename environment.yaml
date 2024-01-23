@@ -1,0 +1,24 @@
+name: pypsa-exporter
+channels:
+- conda-forge
+- bioconda
+
+dependencies:
+- python>=3.8
+- snakemake-minimal=7
+- pre-commit
+- black
+
+- jupyter
+- jupyterlab
+
+  # Dependencies of the workflow itself
+- pandas
+- openpyxl
+- yaml
+- pypsa>=0.25.1
+- pyam
+
+  # Keep in conda environment when calling ipython
+- ipython
+- ipykernel
