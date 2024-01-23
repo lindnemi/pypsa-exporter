@@ -2,3 +2,4 @@ pypsa_output.xlsx
 *.ipynb
 .~lock*
 *.xlsx
+pypsa-to-iamc.py

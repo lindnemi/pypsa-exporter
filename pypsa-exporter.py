@@ -56,115 +56,169 @@ years = config['scenario']['planning_horizons']
 
 # %%
 # A mapping of variable names to the corresponding units, extracted from the template
-vars2unit = pd.read_excel(
+var2unit = pd.read_excel(
     template_path, 
     sheet_name="variable_definitions",
     index_col="Variable",
 )["Unit"]
  
 #%%
+def get_cap(df, label, region):
+    # CAREFUL! FOR CHPs this return electrical capacity
+    if "CHP" in "label":
+        print("Warning: Returning electrical capacity of the CHP, not thermal.")
+    if df.index.name == "Link":
+        return ((
+            df.efficiency.filter(like=label).filter(like=region) *
+            df.p_nom_opt.filter(like=label).filter(like=region)
+        ).sum())
+    if df.index.name == "Generator":
+        return df.p_nom_opt.filter(like=label).filter(like=region).sum() 
+    if df.index.name == "StorageUnit":
+        return df.p_nom_opt.filter(like=label).filter(like=region).sum()
+    else:
+        raise Exception("Received unexpected DataFrame.")
+    
 
-def get_ariadne_vars(n, region):
+
+def get_ariadne_var(n, region):
     cap = n.statistics.supply(comps=["Generator"])
 
     MW2GW = 0.001
-    vars = {}
+    var = {}
 
-    # vars["Capacity|Electricity"] = 
-    # vars["Capacity|Electricity|Biomass"] = 
-    # vars["Capacity|Electricity|Biomass|Gases and Liquids"] = 
-    # vars["Capacity|Electricity|Biomass|Solids"] = 
-    # vars["Capacity|Electricity|Biomass|w/ CCS"] = 
-    # vars["Capacity|Electricity|Biomass|w/o CCS"] = 
-    # vars["Capacity|Electricity|Coal"] = 
-    # vars["Capacity|Electricity|Coal|Hard Coal"] = 
-    # vars["Capacity|Electricity|Coal|Hard Coal|w/ CCS"] = 
-    # vars["Capacity|Electricity|Coal|Hard Coal|w/o CCS"] = 
-    # vars["Capacity|Electricity|Coal|Lignite"] = 
-    # vars["Capacity|Electricity|Coal|Lignite|w/ CCS"] = 
-    # vars["Capacity|Electricity|Coal|Lignite|w/o CCS"] = 
-    # vars["Capacity|Electricity|Coal|w/ CCS"] = 
-    # vars["Capacity|Electricity|Coal|w/o CCS"] = 
-    # vars["Capacity|Electricity|Gas"] = 
-    # vars["Capacity|Electricity|Gas|CC"] = 
-    # vars["Capacity|Electricity|Gas|CC|w/ CCS"] = 
-    # vars["Capacity|Electricity|Gas|CC|w/o CCS"] = 
-    # vars["Capacity|Electricity|Gas|OC"] = 
-    # vars["Capacity|Electricity|Gas|w/ CCS"] = 
-    # vars["Capacity|Electricity|Gas|w/o CCS"] = 
-    # vars["Capacity|Electricity|Geothermal"] = 
-    # vars["Capacity|Electricity|Hydro"] = 
-    # vars["Capacity|Electricity|Hydrogen"] = 
-    # vars["Capacity|Electricity|Hydrogen|CC"] = 
-    # vars["Capacity|Electricity|Hydrogen|FC"] = 
-    # vars["Capacity|Electricity|Hydrogen|OC"] = 
-    # vars["Capacity|Electricity|Non-Renewable Waste"] = 
-    # vars["Capacity|Electricity|Nuclear"] = 
-    # vars["Capacity|Electricity|Ocean"] = 
-    # vars["Capacity|Electricity|Oil"] = 
-    # vars["Capacity|Electricity|Oil|w/ CCS"] = 
-    # vars["Capacity|Electricity|Oil|w/o CCS"] = 
-    # vars["Capacity|Electricity|Other"] = 
-    # vars["Capacity|Electricity|Peak Demand"] = 
-    vars["Capacity|Heat|Solar thermal"] = \
-         MW2GW * n.generators.p_nom_opt \
-        .filter(like='solar thermal').filter(like=region).sum()
-    vars["Capacity|Electricity|Solar|PV|Rooftop"] = \
-        MW2GW * n.generators.p_nom_opt \
-        .filter(like='solar rooftop').filter(like=region).sum()
-    vars["Capacity|Electricity|Solar|PV|Open Field"] = \
-        MW2GW * n.generators.p_nom_opt \
-        .filter(like='solar').filter(like=region).sum() \
-        - vars["Capacity|Electricity|Solar|PV|Rooftop"] \
-        - vars["Capacity|Heat|Solar thermal"]
-    vars["Capacity|Electricity|Solar|PV"] = \
-        vars["Capacity|Electricity|Solar|PV|Open Field"] \
-        + vars["Capacity|Electricity|Solar|PV|Rooftop"]
-    # vars["Capacity|Electricity|Solar|CSP"] = 
-    vars["Capacity|Electricity|Solar"] = vars["Capacity|Electricity|Solar|PV"]
+
+    # var["Capacity|Electricity|Biomass"] = 
+    # var["Capacity|Electricity|Biomass|Gases and Liquids"] = 
+    # var["Capacity|Electricity|Biomass|Solids"] = 
+    # var["Capacity|Electricity|Biomass|w/ CCS"] = 
+    # var["Capacity|Electricity|Biomass|w/o CCS"] = 
+
+    var["Capacity|Electricity|Coal|Hard Coal"] = \
+        MW2GW * get_cap(n.links, "coal", region)                                                  
+
+
+    var["Capacity|Electricity|Coal|Lignite"] = \
+        MW2GW * get_cap(n.links, "lignite", region)
     
-    # vars["Capacity|Electricity|Storage Converter"] = 
-    # vars["Capacity|Electricity|Storage Converter|CAES"] = 
-    # vars["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] = 
-    # vars["Capacity|Electricity|Storage Converter|Pump Hydro"] = 
-    # vars["Capacity|Electricity|Storage Converter|Stationary Batteries"] = 
-    # vars["Capacity|Electricity|Storage Converter|Vehicles"] = 
-    # vars["Capacity|Electricity|Storage Reservoir"] = 
-    # vars["Capacity|Electricity|Storage Reservoir|CAES"] = 
-    # vars["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] = 
-    # vars["Capacity|Electricity|Storage Reservoir|Pump Hydro"] = 
-    # vars["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] = 
-    # vars["Capacity|Electricity|Storage Reservoir|Vehicles"] = 
-    # vars["Capacity|Electricity|Transmissions Grid"] =
-     
-    vars["Capacity|Electricity|Wind|Offshore"] = \
-        MW2GW * n.generators.p_nom_opt \
-        .filter(like='offwind').filter(like=region).sum() 
-    vars["Capacity|Electricity|Wind|Onshore"] = \
-        MW2GW * n.generators.p_nom_opt \
-        .filter(like='onwind').filter(like=region).sum()   
-    vars["Capacity|Electricity|Wind"] = \
-        vars["Capacity|Electricity|Wind|Offshore"] + \
-        vars["Capacity|Electricity|Wind|Onshore"]
+    # var["Capacity|Electricity|Coal|Hard Coal|w/ CCS"] = 
+    # var["Capacity|Electricity|Coal|Hard Coal|w/o CCS"] = 
+    # var["Capacity|Electricity|Coal|Lignite|w/ CCS"] = 
+    # var["Capacity|Electricity|Coal|Lignite|w/o CCS"] = 
+    # var["Capacity|Electricity|Coal|w/ CCS"] = 
+    # var["Capacity|Electricity|Coal|w/o CCS"] = 
+
+    var["Capacity|Electricity|Coal"] = \
+        var["Capacity|Electricity|Coal|Lignite"] + \
+        var["Capacity|Electricity|Coal|Hard Coal"]
+
     
-    return vars
+    var["Capacity|Electricity|Gas|CC"] = \
+        MW2GW * get_cap(n.links, "CCGT", region)
+    
+    var["Capacity|Electricity|Gas|OC"] = \
+        MW2GW * get_cap(n.links, "OCGT", region)
+    
+    var["Capacity|Electricity|Gas|w/ CCS"] =  \
+        MW2GW * get_cap(n.links, "gas CHP CC", region)  
+    
+    # var["Capacity|Electricity|Gas|CC|w/ CCS"] =
+    # var["Capacity|Electricity|Gas|CC|w/o CCS"] =      
+    # var["Capacity|Electricity|Gas|w/o CCS"] = 
+    # Q: Are all OC and CC plants without CCS?
+
+    var["Capacity|Electricity|Gas"] = \
+        var["Capacity|Electricity|Gas|OC"] + \
+        var["Capacity|Electricity|Gas|CC"] + \
+        MW2GW * get_cap(n.links, "gas CHP", region)
+
+    # var["Capacity|Electricity|Geothermal"] = 
+    # ! Not implemented
+
+    var["Capacity|Electricity|Hydro"] = \
+        MW2GW * get_cap(n.generators, "ror", region) \
+        + MW2GW * get_cap(n.storage_units, 'hydro', region)
+
+    # var["Capacity|Electricity|Hydrogen"] = 
+    # var["Capacity|Electricity|Hydrogen|CC"] = 
+    # var["Capacity|Electricity|Hydrogen|FC"] = 
+    # var["Capacity|Electricity|Hydrogen|OC"] = 
+
+    # var["Capacity|Electricity|Non-Renewable Waste"] = 
+
+    # var["Capacity|Electricity|Nuclear"] = 
+    # Q: why is there nuclear AND uranium capacity? 
+    # Q: why are there nuclear generators AND links?
+
+    # var["Capacity|Electricity|Ocean"] = 
+
+    # var["Capacity|Electricity|Oil"] = 
+    # var["Capacity|Electricity|Oil|w/ CCS"] = 
+    # var["Capacity|Electricity|Oil|w/o CCS"] = 
+
+    # var["Capacity|Electricity|Other"] = 
+
+    # var["Capacity|Electricity|Peak Demand"] = 
+
+    var["Capacity|Heat|Solar thermal"] = \
+        MW2GW * get_cap(n.generators, "solar thermal", region)
+    var["Capacity|Electricity|Solar|PV|Rooftop"] = \
+        MW2GW *  get_cap(n.generators, "solar rooftop", region)
+    var["Capacity|Electricity|Solar|PV|Open Field"] = \
+        MW2GW *  get_cap(n.generators, "solar", region) \
+        - var["Capacity|Electricity|Solar|PV|Rooftop"] \
+        - var["Capacity|Heat|Solar thermal"]
+    var["Capacity|Electricity|Solar|PV"] = \
+        var["Capacity|Electricity|Solar|PV|Open Field"] \
+        + var["Capacity|Electricity|Solar|PV|Rooftop"]
+    
+    # var["Capacity|Electricity|Solar|CSP"] = 
 
 
-# uses the global variables model, scenario and vars2unit. For now.
+    var["Capacity|Electricity|Solar"] = var["Capacity|Electricity|Solar|PV"]
+    
+    # var["Capacity|Electricity|Storage Converter"] = 
+    # var["Capacity|Electricity|Storage Converter|CAES"] = 
+    # var["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] = 
+    # var["Capacity|Electricity|Storage Converter|Pump Hydro"] = 
+    # var["Capacity|Electricity|Storage Converter|Stationary Batteries"] = 
+    # var["Capacity|Electricity|Storage Converter|Vehicles"] = 
+    # var["Capacity|Electricity|Storage Reservoir"] = 
+    # var["Capacity|Electricity|Storage Reservoir|CAES"] = 
+    # var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] = 
+    # var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] = 
+    # var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] = 
+    # var["Capacity|Electricity|Storage Reservoir|Vehicles"] = 
+    # var["Capacity|Electricity|Transmissions Grid"] =
+
+    # var["Capacity|Electricity"] =   
+
+    var["Capacity|Electricity|Wind|Offshore"] = \
+        MW2GW * get_cap(n.generators, "offwind", region)
+    var["Capacity|Electricity|Wind|Onshore"] = \
+        MW2GW * get_cap(n.generators, "onwind", region) 
+    var["Capacity|Electricity|Wind"] = \
+        var["Capacity|Electricity|Wind|Offshore"] + \
+        var["Capacity|Electricity|Wind|Onshore"]
+    
+    return var
+
+
+# uses the global variables model, scenario and var2unit. For now.
 def get_data(year):
     n = pypsa.Network(f"results/{config["run"]["name"]}/postnetworks/{scenario}{year}.nc")
     
-    vars = get_ariadne_vars(n, "DE")
+    var = get_ariadne_var(n, "DE")
 
     data = []
-    for var in vars:
+    for v in var:
         data.append([
             model, 
             scenario,
             "DE",
-            var,
-            vars2unit[var],
-            vars[var],
+            v,
+            var2unit[v],
+            var[v],
         ])
 
     tab = pd.DataFrame(
