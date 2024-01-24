@@ -63,18 +63,17 @@ var2unit = pd.read_excel(
 )["Unit"]
  
 #%%
-def get_cap(df, label, region):
-    MW2GW = 0.001
-
+def get_capacity(df, label, region, MW2GW=0.001):
+    
     # CAREFUL! FOR CHPs this return electrical capacity
     if "CHP" in "label":
         print("Warning: Returning electrical capacity of the CHP, not thermal.")
     if df.index.name == "Link":
-        return (( 
+        return ( 
             MW2GW * 
             df.efficiency.filter(like=label).filter(like=region) *
             df.p_nom_opt.filter(like=label).filter(like=region)
-        ).sum())
+        ).sum()
     if df.index.name == "Generator":
         return MW2GW * df.p_nom_opt.filter(like=label).filter(like=region).sum() 
     if df.index.name == "StorageUnit":
@@ -84,17 +83,16 @@ def get_cap(df, label, region):
     
 
 
-def get_ariadne_var(n, region):
-
+def get_ariadne_var(n, region, MW2GW=0.001):
 
     var = {}
 
     # var["Capacity|Electricity|Biomass|Gases and Liquids"] = 
 
     var["Capacity|Electricity|Biomass|Solids"] = \
-        get_cap(n.links, "solid biomass CHP")
+        get_capacity(n.links, "solid biomass CHP")
     var["Capacity|Electricity|Biomass|w/ CCS"] = \
-        get_cap(n.links, "solid biomass CHP CC") 
+        get_capacity(n.links, "solid biomass CHP CC") 
     
     # var["Capacity|Electricity|Biomass|w/o CCS"] = 
 
@@ -102,11 +100,11 @@ def get_ariadne_var(n, region):
         var["Capacity|Electricity|Biomass|Solids"]
 
     var["Capacity|Electricity|Coal|Hard Coal"] = \
-        get_cap(n.links, "coal", region)                                                  
+        get_capacity(n.links, "coal", region)                                                  
 
 
     var["Capacity|Electricity|Coal|Lignite"] = \
-        get_cap(n.links, "lignite", region)
+        get_capacity(n.links, "lignite", region)
     
     # var["Capacity|Electricity|Coal|Hard Coal|w/ CCS"] = 
     # var["Capacity|Electricity|Coal|Hard Coal|w/o CCS"] = 
@@ -121,13 +119,13 @@ def get_ariadne_var(n, region):
 
     
     var["Capacity|Electricity|Gas|CC"] = \
-        get_cap(n.links, "CCGT", region)
+        get_capacity(n.links, "CCGT", region)
     
     var["Capacity|Electricity|Gas|OC"] = \
-        get_cap(n.links, "OCGT", region)
+        get_capacity(n.links, "OCGT", region)
     
     var["Capacity|Electricity|Gas|w/ CCS"] =  \
-        get_cap(n.links, "gas CHP CC", region)  
+        get_capacity(n.links, "gas CHP CC", region)  
     
     # var["Capacity|Electricity|Gas|CC|w/ CCS"] =
     # var["Capacity|Electricity|Gas|CC|w/o CCS"] =      
@@ -137,14 +135,17 @@ def get_ariadne_var(n, region):
     var["Capacity|Electricity|Gas"] = \
         var["Capacity|Electricity|Gas|OC"] + \
         var["Capacity|Electricity|Gas|CC"] + \
-        get_cap(n.links, "gas CHP", region)
+        get_capacity(n.links, "gas CHP", region)
 
     # var["Capacity|Electricity|Geothermal"] = 
     # ! Not implemented
 
     var["Capacity|Electricity|Hydro"] = \
-        get_cap(n.generators, "ror", region) \
-        + get_cap(n.storage_units, 'hydro', region)
+        get_capacity(n.generators, "ror", region) \
+        + get_capacity(n.storage_units, 'hydro', region) \
+        + get_capacity(n.storage_units, 'PHS', region)
+    # Q: Should this include "PHS" as well?
+    # Q: Should we use the Storage Converter variables here?
 
 
     # var["Capacity|Electricity|Hydrogen|CC"] = 
@@ -153,7 +154,7 @@ def get_ariadne_var(n, region):
     # Q: Are all vars in the Network object, regardless of the params?
 
     var["Capacity|Electricity|Hydrogen|FC"] = \
-        get_cap(n.generators, "H2 Fuel Cell", region)
+        get_capacity(n.generators, "H2 Fuel Cell", region)
 
     var["Capacity|Electricity|Hydrogen"] = \
         var["Capacity|Electricity|Hydrogen|FC"]
@@ -169,18 +170,18 @@ def get_ariadne_var(n, region):
     # var["Capacity|Electricity|Oil|w/ CCS"] = 
     # var["Capacity|Electricity|Oil|w/o CCS"] = 
     var["Capacity|Electricity|Oil"] = \
-        get_cap(n.links, "oil", region)
+        get_capacity(n.links, "oil", region)
 
     # var["Capacity|Electricity|Other"] = 
 
     # var["Capacity|Electricity|Peak Demand"] = 
 
     var["Capacity|Heat|Solar thermal"] = \
-        get_cap(n.generators, "solar thermal", region)
+        get_capacity(n.generators, "solar thermal", region)
     var["Capacity|Electricity|Solar|PV|Rooftop"] = \
-        get_cap(n.generators, "solar rooftop", region)
+        get_capacity(n.generators, "solar rooftop", region)
     var["Capacity|Electricity|Solar|PV|Open Field"] = \
-        get_cap(n.generators, "solar", region) \
+        get_capacity(n.generators, "solar", region) \
         - var["Capacity|Electricity|Solar|PV|Rooftop"] \
         - var["Capacity|Heat|Solar thermal"]
     var["Capacity|Electricity|Solar|PV"] = \
@@ -194,14 +195,30 @@ def get_ariadne_var(n, region):
     
     # var["Capacity|Electricity|Storage Converter"] = 
     # var["Capacity|Electricity|Storage Converter|CAES"] = 
-    # var["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] = 
-    # var["Capacity|Electricity|Storage Converter|Pump Hydro"] = 
+    var["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] = \
+        get_capacity(n.storage_units, 'hydro', region)
+    var["Capacity|Electricity|Storage Converter|Pump Hydro"] = \
+        get_capacity(n.storage_units, "PHS", region)
+    # Q: Is this a converter, or a reservoir, or both?
+
     # var["Capacity|Electricity|Storage Converter|Stationary Batteries"] = 
     # var["Capacity|Electricity|Storage Converter|Vehicles"] = 
     # var["Capacity|Electricity|Storage Reservoir"] = 
-    # var["Capacity|Electricity|Storage Reservoir|CAES"] = 
-    # var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] = 
-    # var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] = 
+    # var["Capacity|Electricity|Storage Reservoir|CAES"] =
+     
+    var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] = (
+        MW2GW * # ! Unit will be GWh
+        n.storage_units.p_nom_opt
+        .multiply(n.storage_units.max_hours)
+        .filter(like="hydro").sum()
+    )
+    var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] = (
+        MW2GW * 
+        n.storage_units.p_nom_opt
+        .multiply(n.storage_units.max_hours)
+        .filter(like="PHS").sum()
+    )
+
     # var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] = 
     # var["Capacity|Electricity|Storage Reservoir|Vehicles"] = 
     # var["Capacity|Electricity|Transmissions Grid"] =
@@ -209,9 +226,9 @@ def get_ariadne_var(n, region):
     # var["Capacity|Electricity"] =   
 
     var["Capacity|Electricity|Wind|Offshore"] = \
-        get_cap(n.generators, "offwind", region)
+        get_capacity(n.generators, "offwind", region)
     var["Capacity|Electricity|Wind|Onshore"] = \
-        get_cap(n.generators, "onwind", region) 
+        get_capacity(n.generators, "onwind", region) 
     var["Capacity|Electricity|Wind"] = \
         var["Capacity|Electricity|Wind|Offshore"] + \
         var["Capacity|Electricity|Wind|Onshore"]
