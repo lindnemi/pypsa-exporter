@@ -64,42 +64,49 @@ var2unit = pd.read_excel(
  
 #%%
 def get_cap(df, label, region):
+    MW2GW = 0.001
+
     # CAREFUL! FOR CHPs this return electrical capacity
     if "CHP" in "label":
         print("Warning: Returning electrical capacity of the CHP, not thermal.")
     if df.index.name == "Link":
-        return ((
+        return (( 
+            MW2GW * 
             df.efficiency.filter(like=label).filter(like=region) *
             df.p_nom_opt.filter(like=label).filter(like=region)
         ).sum())
     if df.index.name == "Generator":
-        return df.p_nom_opt.filter(like=label).filter(like=region).sum() 
+        return MW2GW * df.p_nom_opt.filter(like=label).filter(like=region).sum() 
     if df.index.name == "StorageUnit":
-        return df.p_nom_opt.filter(like=label).filter(like=region).sum()
+        return MW2GW * df.p_nom_opt.filter(like=label).filter(like=region).sum()
     else:
         raise Exception("Received unexpected DataFrame.")
     
 
 
 def get_ariadne_var(n, region):
-    cap = n.statistics.supply(comps=["Generator"])
 
-    MW2GW = 0.001
+
     var = {}
 
-
-    # var["Capacity|Electricity|Biomass"] = 
     # var["Capacity|Electricity|Biomass|Gases and Liquids"] = 
-    # var["Capacity|Electricity|Biomass|Solids"] = 
-    # var["Capacity|Electricity|Biomass|w/ CCS"] = 
+
+    var["Capacity|Electricity|Biomass|Solids"] = \
+        get_cap(n.links, "solid biomass CHP")
+    var["Capacity|Electricity|Biomass|w/ CCS"] = \
+        get_cap(n.links, "solid biomass CHP CC") 
+    
     # var["Capacity|Electricity|Biomass|w/o CCS"] = 
 
+    var["Capacity|Electricity|Biomass"] = \
+        var["Capacity|Electricity|Biomass|Solids"]
+
     var["Capacity|Electricity|Coal|Hard Coal"] = \
-        MW2GW * get_cap(n.links, "coal", region)                                                  
+        get_cap(n.links, "coal", region)                                                  
 
 
     var["Capacity|Electricity|Coal|Lignite"] = \
-        MW2GW * get_cap(n.links, "lignite", region)
+        get_cap(n.links, "lignite", region)
     
     # var["Capacity|Electricity|Coal|Hard Coal|w/ CCS"] = 
     # var["Capacity|Electricity|Coal|Hard Coal|w/o CCS"] = 
@@ -114,13 +121,13 @@ def get_ariadne_var(n, region):
 
     
     var["Capacity|Electricity|Gas|CC"] = \
-        MW2GW * get_cap(n.links, "CCGT", region)
+        get_cap(n.links, "CCGT", region)
     
     var["Capacity|Electricity|Gas|OC"] = \
-        MW2GW * get_cap(n.links, "OCGT", region)
+        get_cap(n.links, "OCGT", region)
     
     var["Capacity|Electricity|Gas|w/ CCS"] =  \
-        MW2GW * get_cap(n.links, "gas CHP CC", region)  
+        get_cap(n.links, "gas CHP CC", region)  
     
     # var["Capacity|Electricity|Gas|CC|w/ CCS"] =
     # var["Capacity|Electricity|Gas|CC|w/o CCS"] =      
@@ -130,14 +137,14 @@ def get_ariadne_var(n, region):
     var["Capacity|Electricity|Gas"] = \
         var["Capacity|Electricity|Gas|OC"] + \
         var["Capacity|Electricity|Gas|CC"] + \
-        MW2GW * get_cap(n.links, "gas CHP", region)
+        get_cap(n.links, "gas CHP", region)
 
     # var["Capacity|Electricity|Geothermal"] = 
     # ! Not implemented
 
     var["Capacity|Electricity|Hydro"] = \
-        MW2GW * get_cap(n.generators, "ror", region) \
-        + MW2GW * get_cap(n.storage_units, 'hydro', region)
+        get_cap(n.generators, "ror", region) \
+        + get_cap(n.storage_units, 'hydro', region)
 
 
     # var["Capacity|Electricity|Hydrogen|CC"] = 
@@ -146,7 +153,7 @@ def get_ariadne_var(n, region):
     # Q: Are all vars in the Network object, regardless of the params?
 
     var["Capacity|Electricity|Hydrogen|FC"] = \
-        MW2GW * get_cap(n.generators, "H2 Fuel Cell", region)
+        get_cap(n.generators, "H2 Fuel Cell", region)
 
     var["Capacity|Electricity|Hydrogen"] = \
         var["Capacity|Electricity|Hydrogen|FC"]
@@ -162,18 +169,18 @@ def get_ariadne_var(n, region):
     # var["Capacity|Electricity|Oil|w/ CCS"] = 
     # var["Capacity|Electricity|Oil|w/o CCS"] = 
     var["Capacity|Electricity|Oil"] = \
-        MW2GW * get_cap(n.links, "oil", region)
+        get_cap(n.links, "oil", region)
 
     # var["Capacity|Electricity|Other"] = 
 
     # var["Capacity|Electricity|Peak Demand"] = 
 
     var["Capacity|Heat|Solar thermal"] = \
-        MW2GW * get_cap(n.generators, "solar thermal", region)
+        get_cap(n.generators, "solar thermal", region)
     var["Capacity|Electricity|Solar|PV|Rooftop"] = \
-        MW2GW *  get_cap(n.generators, "solar rooftop", region)
+        get_cap(n.generators, "solar rooftop", region)
     var["Capacity|Electricity|Solar|PV|Open Field"] = \
-        MW2GW *  get_cap(n.generators, "solar", region) \
+        get_cap(n.generators, "solar", region) \
         - var["Capacity|Electricity|Solar|PV|Rooftop"] \
         - var["Capacity|Heat|Solar thermal"]
     var["Capacity|Electricity|Solar|PV"] = \
@@ -202,9 +209,9 @@ def get_ariadne_var(n, region):
     # var["Capacity|Electricity"] =   
 
     var["Capacity|Electricity|Wind|Offshore"] = \
-        MW2GW * get_cap(n.generators, "offwind", region)
+        get_cap(n.generators, "offwind", region)
     var["Capacity|Electricity|Wind|Onshore"] = \
-        MW2GW * get_cap(n.generators, "onwind", region) 
+        get_cap(n.generators, "onwind", region) 
     var["Capacity|Electricity|Wind"] = \
         var["Capacity|Electricity|Wind|Offshore"] + \
         var["Capacity|Electricity|Wind|Onshore"]
