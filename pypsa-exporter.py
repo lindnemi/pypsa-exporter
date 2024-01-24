@@ -13,6 +13,10 @@ from functools import reduce
 import os
 import snakemake as sm
 from pathlib import Path
+
+# Defining global varibales
+
+MW2GW = 0.001
 #%%
 
 project_dir = "/home/micha/git/pypsa-ariadne/"
@@ -63,45 +67,62 @@ var2unit = pd.read_excel(
 )["Unit"]
  
 #%%
-def get_capacity(df, label, region, MW2GW=0.001):
-    
-    # CAREFUL! FOR CHPs this return electrical capacity
+def get_capacity(_df, label, region):
+    # Would be nice to have an explicit column for the region, not just implicit
+    # location derived from the index name
+    df = _df[_df.carrier==label].filter(like=region, axis=0)
     if "CHP" in "label":
         print("Warning: Returning electrical capacity of the CHP, not thermal.")
     if df.index.name == "Link":
-        return ( 
-            MW2GW * 
-            df.efficiency.filter(like=label).filter(like=region) *
-            df.p_nom_opt.filter(like=label).filter(like=region)
-        ).sum()
-    if df.index.name == "Generator":
-        return MW2GW * df.p_nom_opt.filter(like=label).filter(like=region).sum() 
-    if df.index.name == "StorageUnit":
-        return MW2GW * df.p_nom_opt.filter(like=label).filter(like=region).sum()
+        return MW2GW * df.p_nom_opt.multiply(df.efficiency).sum()
+    elif df.index.name == "Generator":
+        return MW2GW * df.p_nom_opt.sum() 
+    elif df.index.name == "StorageUnit":
+        return MW2GW * df.p_nom_opt.sum()
     else:
         raise Exception("Received unexpected DataFrame.")
     
 
+def get_converter_capacity(n, label, region):
+    _idx = n.links.bus0.isin(n.stores[n.stores.carrier == label].bus)
+    df = n.links[_idx].filter(like=region, axis=0)
+    return MW2GW * df.p_nom_opt.multiply(df.efficiency).sum()
 
-def get_ariadne_var(n, region, MW2GW=0.001):
+def get_reservoir_capacity(_df, label, region):
+    df = _df[_df.carrier == label].filter(like=region, axis=0)
+    if df.index.name == "Store":
+        return MW2GW * df.e_nom_opt.sum()
+    elif df.index.name == "StorageUnit":
+        return MW2GW * df.p_nom_opt.multiply(df.max_hours).sum()
+    else:
+        raise Exception("Received unexpected DataFrame.")
+#%%
+
+def get_ariadne_var(n, region):
 
     var = {}
 
-    # var["Capacity|Electricity|Biomass|Gases and Liquids"] = 
+    # var["Capacity|Electricity|Biomass|Gases and Liquids"] =
+    # direct biogas plants are not implemented,
+    # biogas gets upgraded to gas 
+    # Disregarding biomass -> biogas -> gas -> electricity
+
+
+    var["Capacity|Electricity|Biomass|w/ CCS"] = \
+        get_capacity(n.links, 'urban central solid biomass CHP CC', region) 
+    var["Capacity|Electricity|Biomass|w/o CCS"] = \
+        get_capacity(n.links, 'urban central solid biomass CHP', region) 
 
     var["Capacity|Electricity|Biomass|Solids"] = \
-        get_capacity(n.links, "solid biomass CHP")
-    var["Capacity|Electricity|Biomass|w/ CCS"] = \
-        get_capacity(n.links, "solid biomass CHP CC") 
-    
-    # var["Capacity|Electricity|Biomass|w/o CCS"] = 
+        var["Capacity|Electricity|Biomass|w/ CCS"] + \
+        var["Capacity|Electricity|Biomass|w/o CCS"]
 
     var["Capacity|Electricity|Biomass"] = \
         var["Capacity|Electricity|Biomass|Solids"]
 
+
     var["Capacity|Electricity|Coal|Hard Coal"] = \
         get_capacity(n.links, "coal", region)                                                  
-
 
     var["Capacity|Electricity|Coal|Lignite"] = \
         get_capacity(n.links, "lignite", region)
@@ -112,12 +133,17 @@ def get_ariadne_var(n, region, MW2GW=0.001):
     # var["Capacity|Electricity|Coal|Lignite|w/o CCS"] = 
     # var["Capacity|Electricity|Coal|w/ CCS"] = 
     # var["Capacity|Electricity|Coal|w/o CCS"] = 
+    # !? CCS for coal Implemented, but not activated, should we use it?
+    # > config: coal_cc
 
     var["Capacity|Electricity|Coal"] = \
         var["Capacity|Electricity|Coal|Lignite"] + \
         var["Capacity|Electricity|Coal|Hard Coal"]
 
-    
+    # var["Capacity|Electricity|Gas|CC|w/ CCS"] =
+    # var["Capacity|Electricity|Gas|CC|w/o CCS"] =  
+    # ! Not implemented, rarely used   
+
     var["Capacity|Electricity|Gas|CC"] = \
         get_capacity(n.links, "CCGT", region)
     
@@ -125,17 +151,17 @@ def get_ariadne_var(n, region, MW2GW=0.001):
         get_capacity(n.links, "OCGT", region)
     
     var["Capacity|Electricity|Gas|w/ CCS"] =  \
-        get_capacity(n.links, "gas CHP CC", region)  
+        get_capacity(n.links, "urban central gas CHP CC", region)  
     
-    # var["Capacity|Electricity|Gas|CC|w/ CCS"] =
-    # var["Capacity|Electricity|Gas|CC|w/o CCS"] =      
-    # var["Capacity|Electricity|Gas|w/o CCS"] = 
-    # Q: Are all OC and CC plants without CCS?
+    var["Capacity|Electricity|Gas|w/o CCS"] =  \
+        get_capacity(n.links, "urban central gas CHP", region) + \
+        var["Capacity|Electricity|Gas|CC"] + \
+        var["Capacity|Electricity|Gas|OC"]
+    
 
     var["Capacity|Electricity|Gas"] = \
-        var["Capacity|Electricity|Gas|OC"] + \
-        var["Capacity|Electricity|Gas|CC"] + \
-        get_capacity(n.links, "gas CHP", region)
+        var["Capacity|Electricity|Gas|w/ CCS"] + \
+        var["Capacity|Electricity|Gas|w/o CCS"]
 
     # var["Capacity|Electricity|Geothermal"] = 
     # ! Not implemented
@@ -144,14 +170,13 @@ def get_ariadne_var(n, region, MW2GW=0.001):
         get_capacity(n.generators, "ror", region) \
         + get_capacity(n.storage_units, 'hydro', region) \
         + get_capacity(n.storage_units, 'PHS', region)
-    # Q: Should this include "PHS" as well?
     # Q: Should we use the Storage Converter variables here?
 
-
     # var["Capacity|Electricity|Hydrogen|CC"] = 
+    # ! Not implemented
     # var["Capacity|Electricity|Hydrogen|OC"] = 
-    # Q: What about retrofitted gas power plants?
-    # Q: Are all vars in the Network object, regardless of the params?
+    # Q: "H2-turbine"
+    # Q: What about retrofitted gas power plants? -> Lisa
 
     var["Capacity|Electricity|Hydrogen|FC"] = \
         get_capacity(n.generators, "H2 Fuel Cell", region)
@@ -160,78 +185,127 @@ def get_ariadne_var(n, region, MW2GW=0.001):
         var["Capacity|Electricity|Hydrogen|FC"]
 
     # var["Capacity|Electricity|Non-Renewable Waste"] = 
+    # ! Not implemented
 
     # var["Capacity|Electricity|Nuclear"] = 
     # Q: why is there nuclear AND uranium capacity? 
     # Q: why are there nuclear generators AND links?
+    # ! Use only generators once model is updated
 
     # var["Capacity|Electricity|Ocean"] = 
+    # ! Not implemented
 
     # var["Capacity|Electricity|Oil|w/ CCS"] = 
     # var["Capacity|Electricity|Oil|w/o CCS"] = 
+    # ! Not implemented
+
     var["Capacity|Electricity|Oil"] = \
         get_capacity(n.links, "oil", region)
-
-    # var["Capacity|Electricity|Other"] = 
-
-    # var["Capacity|Electricity|Peak Demand"] = 
-
+    
+    # ! Probably this varibale should be in the Heat part of the script
+    # Filtering for multiple values is possible with the .isin(.) method
     var["Capacity|Heat|Solar thermal"] = \
-        get_capacity(n.generators, "solar thermal", region)
+        get_capacity(n.generators, 'residential rural solar thermal', region) + \
+        get_capacity(n.generators, 'services rural solar thermal', region) + \
+        get_capacity(n.generators, 'residential urban decentral solar thermal', region) + \
+        get_capacity(n.generators, 'services urban decentral solar thermal', region) + \
+        get_capacity(n.generators, 'urban central solar thermal', region)
+    
     var["Capacity|Electricity|Solar|PV|Rooftop"] = \
         get_capacity(n.generators, "solar rooftop", region)
+    
     var["Capacity|Electricity|Solar|PV|Open Field"] = \
-        get_capacity(n.generators, "solar", region) \
-        - var["Capacity|Electricity|Solar|PV|Rooftop"] \
-        - var["Capacity|Heat|Solar thermal"]
+        get_capacity(n.generators, "solar", region) 
+
     var["Capacity|Electricity|Solar|PV"] = \
         var["Capacity|Electricity|Solar|PV|Open Field"] \
         + var["Capacity|Electricity|Solar|PV|Rooftop"]
     
     # var["Capacity|Electricity|Solar|CSP"] = 
-
+    # ! not implemented
 
     var["Capacity|Electricity|Solar"] = var["Capacity|Electricity|Solar|PV"]
-    
-    # var["Capacity|Electricity|Storage Converter"] = 
+
     # var["Capacity|Electricity|Storage Converter|CAES"] = 
+    # ! Not implemented
+
     var["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] = \
         get_capacity(n.storage_units, 'hydro', region)
+    
     var["Capacity|Electricity|Storage Converter|Pump Hydro"] = \
         get_capacity(n.storage_units, "PHS", region)
-    # Q: Is this a converter, or a reservoir, or both?
 
-    # var["Capacity|Electricity|Storage Converter|Stationary Batteries"] = 
-    # var["Capacity|Electricity|Storage Converter|Vehicles"] = 
-    # var["Capacity|Electricity|Storage Reservoir"] = 
+    var["Capacity|Electricity|Storage Converter|Stationary Batteries"] = \
+        get_converter_capacity(n, "battery", region) + \
+        get_converter_capacity(n, "home battery", region)
+
+    var["Capacity|Electricity|Storage Converter|Vehicles"] = \
+        get_converter_capacity(n, "Li ion", region)
+    
+    var["Capacity|Electricity|Storage Converter"] = \
+        var["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] + \
+        var["Capacity|Electricity|Storage Converter|Pump Hydro"] + \
+        var["Capacity|Electricity|Storage Converter|Stationary Batteries"] + \
+        var["Capacity|Electricity|Storage Converter|Vehicles"] 
+    
+
     # var["Capacity|Electricity|Storage Reservoir|CAES"] =
+    # ! Not implemented
      
-    var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] = (
-        MW2GW * # ! Unit will be GWh
-        n.storage_units.p_nom_opt
-        .multiply(n.storage_units.max_hours)
-        .filter(like="hydro").sum()
-    )
-    var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] = (
-        MW2GW * 
-        n.storage_units.p_nom_opt
-        .multiply(n.storage_units.max_hours)
-        .filter(like="PHS").sum()
-    )
+    var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] = \
+        get_reservoir_capacity(n.storage_units, "hydro", region)
 
-    # var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] = 
-    # var["Capacity|Electricity|Storage Reservoir|Vehicles"] = 
-    # var["Capacity|Electricity|Transmissions Grid"] =
+    var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] = \
+        get_reservoir_capacity(n.storage_units, "PHS", region)
+    
+    var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] = \
+        get_reservoir_capacity(n.stores, "battery", region) + \
+        get_reservoir_capacity(n.stores, "home battery", region)
+    
+    var["Capacity|Electricity|Storage Reservoir|Vehicles"] = \
+        get_reservoir_capacity(n.stores, "Li ion", region)
 
-    # var["Capacity|Electricity"] =   
+    var["Capacity|Electricity|Storage Reservoir"] = \
+        var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] + \
+        var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] + \
+        var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] + \
+        var["Capacity|Electricity|Storage Reservoir|Vehicles"]
 
+    var["Capacity|Electricity|Transmissions Grid"] = \
+        99999
+    #    MW2GW * n.lines.length.multiply(n.lines.s_nom_opt).sum()
+    # Q: How could this be adjusted for country?
+    # Why is this constant? No transmission grid expansion??
+    
     var["Capacity|Electricity|Wind|Offshore"] = \
-        get_capacity(n.generators, "offwind", region)
+        get_capacity(n.generators, "offwind", region) + \
+        get_capacity(n.generators, "offwind-ac", region) + \
+        get_capacity(n.generators, "offwind-dc", region)
+    # take care of "offwind" -> "offwind-ac"/"offwind-dc"
+
     var["Capacity|Electricity|Wind|Onshore"] = \
-        get_capacity(n.generators, "onwind", region) 
+        get_capacity(n.generators, "onwind", region)
+    
     var["Capacity|Electricity|Wind"] = \
         var["Capacity|Electricity|Wind|Offshore"] + \
         var["Capacity|Electricity|Wind|Onshore"]
+
+    var["Capacity|Electricity"] = \
+        var["Capacity|Electricity|Wind"] + \
+        var["Capacity|Electricity|Solar"] + \
+        var["Capacity|Electricity|Oil"] + \
+        var["Capacity|Electricity|Coal"] + \
+        var["Capacity|Electricity|Gas"] + \
+        var["Capacity|Electricity|Biomass"] +\
+        var["Capacity|Electricity|Hydro"] + \
+        var["Capacity|Electricity|Hydrogen"]
+
+
+    # var["Capacity|Electricity|Peak Demand"] = 
+    # ???
+
+    # var["Capacity|Electricity|Other"] = 
+    # ???
     
     return var
 
