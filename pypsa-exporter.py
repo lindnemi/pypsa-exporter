@@ -67,11 +67,16 @@ var2unit = pd.read_excel(
 )["Unit"]
  
 #%%
+
+## Electricity
+
 def get_capacity(_df, label, region):
+    if type(label) == list:
+        return sum(map(lambda lab: get_capacity(_df, lab, region), label))
     # Would be nice to have an explicit column for the region, not just implicit
     # location derived from the index name
     df = _df[_df.carrier==label].filter(like=region, axis=0)
-    if "CHP" in "label":
+    if "CHP" in label:
         print("Warning: Returning electrical capacity of the CHP, not thermal.")
     if df.index.name == "Link":
         return MW2GW * df.p_nom_opt.multiply(df.efficiency).sum()
@@ -118,9 +123,25 @@ def get_line_capacity(n, region):
     return MW2GW * (AC_capacity + DC_capacity)
 #%%
 
+## Heat
+
+def get_capacity2(_df, label, region):
+    if type(label) == list:
+        return sum(map(lambda lab: get_capacity2(_df, lab, region), label))
+
+    df = _df[_df.carrier==label].filter(like=region, axis=0)
+    if df.index.name == "Link":
+        return MW2GW * df.p_nom_opt.multiply(df.efficiency2).sum()
+    else:
+        raise Exception("Received unexpected DataFrame.")
+
+#%%
+
 def get_ariadne_var(n, region):
 
     var = {}
+
+    ## Capacity | Electricity
 
     # var["Capacity|Electricity|Biomass|Gases and Liquids"] =
     # direct biogas plants are not implemented,
@@ -223,12 +244,7 @@ def get_ariadne_var(n, region):
     
     # ! Probably this varibale should be in the Heat part of the script
     # Filtering for multiple values is possible with the .isin(.) method
-    var["Capacity|Heat|Solar thermal"] = \
-        get_capacity(n.generators, 'residential rural solar thermal', region) + \
-        get_capacity(n.generators, 'services rural solar thermal', region) + \
-        get_capacity(n.generators, 'residential urban decentral solar thermal', region) + \
-        get_capacity(n.generators, 'services urban decentral solar thermal', region) + \
-        get_capacity(n.generators, 'urban central solar thermal', region)
+
     
     var["Capacity|Electricity|Solar|PV|Rooftop"] = \
         get_capacity(n.generators, "solar rooftop", region)
@@ -321,7 +337,79 @@ def get_ariadne_var(n, region):
 
     # var["Capacity|Electricity|Other"] = 
     # ???
+
+    ## Capacity | Heat
+
+    var["Capacity|Heat|Solar thermal"] = \
+    get_capacity(n.generators, 'residential rural solar thermal', region) + \
+    get_capacity(n.generators, 'services rural solar thermal', region) + \
+    get_capacity(n.generators, 'residential urban decentral solar thermal', region) + \
+    get_capacity(n.generators, 'services urban decentral solar thermal', region) + \
+    get_capacity(n.generators, 'urban central solar thermal', region)
+
+    # !!! Missing in the Ariadne database
+    #
+    # var["Capacity|Heat|Biomass|w/ CCS"] = \
+    #     get_capacity2(n.links, 'urban central solid biomass CHP CC', region) 
+    # var["Capacity|Heat|Biomass|w/o CCS"] = \
+    #     get_capacity2(n.links, 'urban central solid biomass CHP', region)
+    # var["Capacity|Heat|Biomass"] = \
+    #     var["Capacity|Heat|Biomass|w/ CCS"] + \
+    #     var["Capacity|Heat|Biomass|w/o CCS"]
+    # FURTHER ADD THE BIOMASS BOILERS!
+    #
+    # !!! Missing in the Ariadne database
+
+    # We could be much more detailed for the heat sector (as for electricity)
+    # if desired by Ariadne
+    # Capacity|Heat|Electricity
+    # 'residential rural resistive heater',
+    # 'services rural resistive heater',
+    # 'residential urban decentral resistive heater',
+    # 'services urban decentral resistive heater',
+    # 'urban central resistive heater'
+
+    # Capacity|Heat
+    var["Capacity|Heat|Gas"] = get_capacity(
+        n.links,
+        [
+            'residential rural gas boiler', 
+            'services rural gas boiler',
+            'residential urban decentral gas boiler',
+            'services urban decentral gas boiler', 
+            'urban central gas boiler'
+        ],
+        region
+    ) + get_capacity2(
+        n.links, 
+        [
+            "urban central gas CHP",
+            "urban central gas CHP CC"
+        ],
+        region
+    )
+
     
+    # var["Capacity|Heat|Geothermal"] =
+    # ! Not implemented 
+    var["Capacity|Heat|Heat pump"] = \
+        get_capacity(
+            n.links,
+            [
+                'residential rural ground heat pump',
+                'services rural ground heat pump',
+                'residential urban decentral air heat pump',
+                'services urban decentral air heat pump',
+                'urban central air heat pump', 
+            ],
+            region
+        )
+
+    var["Capacity|Heat|Oil"] = \
+        get_capacity(n.links, "urban central oil boiler", region)
+    # var["Capacity|Heat|Storage Converter"] =
+    # var["Capacity|Heat|Storage Reservoir"] =
+
     return var
 
 
@@ -379,3 +467,4 @@ df.to_excel(
 n = pypsa.Network(f"results/{config["run"]["name"]}/postnetworks/{scenario}{2040}.nc")
 region="DE"
 # %%
+ 
