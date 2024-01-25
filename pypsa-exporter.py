@@ -96,6 +96,26 @@ def get_reservoir_capacity(_df, label, region):
         return MW2GW * df.p_nom_opt.multiply(df.max_hours).sum()
     else:
         raise Exception("Received unexpected DataFrame.")
+    
+def get_line_capacity(n, region):
+    AC_capacity = (
+        0.5 * (
+            n.lines.bus0.str.contains(region).astype(float) + 
+            n.lines.bus1.str.contains(region).astype(float)
+        ) * n.lines.length.multiply(n.lines.s_nom_opt)
+    ).sum()
+
+    _DC_links = n.links[n.links.carrier == "DC"]
+    # Drop all reversed links
+    DC_links = _DC_links[~_DC_links.index.str.contains("-reversed")]
+    DC_capacity = (
+        0.5 * (
+            DC_links.bus0.str.contains(region).astype(float) + 
+            DC_links.bus1.str.contains(region).astype(float)
+        ) * DC_links.length.multiply(DC_links.p_nom_opt)
+    ).sum()
+
+    return MW2GW * (AC_capacity + DC_capacity)
 #%%
 
 def get_ariadne_var(n, region):
@@ -170,7 +190,6 @@ def get_ariadne_var(n, region):
         get_capacity(n.generators, "ror", region) \
         + get_capacity(n.storage_units, 'hydro', region) \
         + get_capacity(n.storage_units, 'PHS', region)
-    # Q: Should we use the Storage Converter variables here?
 
     # var["Capacity|Electricity|Hydrogen|CC"] = 
     # ! Not implemented
@@ -270,12 +289,6 @@ def get_ariadne_var(n, region):
         var["Capacity|Electricity|Storage Reservoir|Pump Hydro"] + \
         var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] + \
         var["Capacity|Electricity|Storage Reservoir|Vehicles"]
-
-    var["Capacity|Electricity|Transmissions Grid"] = \
-        99999
-    #    MW2GW * n.lines.length.multiply(n.lines.s_nom_opt).sum()
-    # Q: How could this be adjusted for country?
-    # Why is this constant? No transmission grid expansion??
     
     var["Capacity|Electricity|Wind|Offshore"] = \
         get_capacity(n.generators, "offwind", region) + \
@@ -300,7 +313,9 @@ def get_ariadne_var(n, region):
         var["Capacity|Electricity|Hydro"] + \
         var["Capacity|Electricity|Hydrogen"]
 
-
+    var["Capacity|Electricity|Transmissions Grid"] = \
+        get_line_capacity(n, region)
+    
     # var["Capacity|Electricity|Peak Demand"] = 
     # ???
 
@@ -362,5 +377,5 @@ df.to_excel(
 # "2005", "2010", "2015", "2020", "2025", "2030", "2035", 
 # "2040", "2045", "2050", "2060", "2070", "2080", "2090", "2100"])
 n = pypsa.Network(f"results/{config["run"]["name"]}/postnetworks/{scenario}{2040}.nc")
-
+region="DE"
 # %%
