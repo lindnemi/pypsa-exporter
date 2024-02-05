@@ -3,3 +3,6 @@ pypsa_output.xlsx
 .~lock*
 *.xlsx
 pypsa-to-iamc.py
+pypsa_to_IPCC.py
+.env
+*.pyc

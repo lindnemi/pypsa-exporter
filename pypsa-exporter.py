@@ -13,11 +13,15 @@ from functools import reduce
 import os
 import snakemake as sm
 from pathlib import Path
+from _utils import *
+
 
 # Defining global varibales
 
-MW2GW = 0.001
+MWh2TJ=3.6e-3 
+MW2GW = 1e-3
 t2Mt = 1e-6
+
 #%%
 
 project_dir = "/home/micha/git/pypsa-ariadne/"
@@ -41,7 +45,7 @@ finally:
 #%%
     
 # official template
-template_path = Path(__file__).parent /  "2023-03-16_template_Ariadne.xlsx" 
+template_path = Path(__file__).parent /  "2024-01-31_template_Ariadne.xlsx" 
 
 # Metadata
 model = "PyPSA-Ariadne v" + config['version']
@@ -68,111 +72,6 @@ var2unit = pd.read_excel(
 )["Unit"]
  
 
-#%% CO2
-
-def get_total_co2(n, region):
-    return t2Mt * n.statistics.supply(
-        bus_carrier="co2",
-        groupby=n.statistics.groupers.get_name_bus_and_carrier
-    ).filter(like=region).groupby("carrier").sum().sum()
-
-
-def get_co2(n, carrier, region):
-    # If a technology is not built, it does not show up in n.statistics
-    # What to do in this case?
-    if type(carrier) == list:
-        return sum([get_co2(n, car, region) for car in carrier])
-    
-    stats = n.statistics.supply(
-        bus_carrier="co2",
-        groupby=n.statistics.groupers.get_name_bus_and_carrier
-    ).filter(like=region).groupby("carrier").sum()
-
-    if carrier not in stats.index:
-        print("Warning, ", carrier, " not found, maybe not built!")
-        return 0
-    return t2Mt * stats[carrier]
-
-#%%
-
-## Electricity
-
-
-
-def get_capacity(_df, label, region):
-    if type(label) == list:
-        return sum(map(lambda lab: get_capacity(_df, lab, region), label))
-    # Would be nice to have an explicit column for the region, not just implicit
-    # location derived from the index name
-    df = _df[_df.carrier==label].filter(like=region, axis=0)
-    if "CHP" in label:
-        print("Warning: Returning electrical capacity of the CHP, not thermal.")
-    if df.index.name == "Link":
-        return MW2GW * df.p_nom_opt.multiply(df.efficiency).sum()
-    elif df.index.name == "Generator":
-        return MW2GW * df.p_nom_opt.sum() 
-    elif df.index.name == "StorageUnit":
-        return MW2GW * df.p_nom_opt.sum()
-    else:
-        raise Exception("Received unexpected DataFrame.")
-    
-
-# !!! This mistakenly get the charger, not the discharger capacity                                     
-# def get_converter_capacity(n, label, region):
-#     _idx = n.links.bus0.isin(n.stores[n.stores.carrier == label].bus)
-#     df = n.links[_idx].filter(like=region, axis=0)
-#     return MW2GW * df.p_nom_opt.multiply(df.efficiency).sum()
-
-def get_reservoir_capacity(_df, label, region):
-    if type(label) == list:
-        return sum(map(lambda lab: get_reservoir_capacity(_df, lab, region), label))
-
-    df = _df[_df.carrier == label].filter(like=region, axis=0)
-    if df.index.name == "Store":
-        return MW2GW * df.e_nom_opt.sum()
-    elif df.index.name == "StorageUnit":
-        return MW2GW * df.p_nom_opt.multiply(df.max_hours).sum()
-    else:
-        raise Exception("Received unexpected DataFrame.")
-    
-def get_line_capacity(n, region):
-    AC_capacity = (
-        0.5 * (
-            n.lines.bus0.str.contains(region).astype(float) + 
-            n.lines.bus1.str.contains(region).astype(float)
-        ) * n.lines.length.multiply(n.lines.s_nom_opt)
-    ).sum()
-
-    _DC_links = n.links[n.links.carrier == "DC"]
-    # Drop all reversed links
-    DC_links = _DC_links[~_DC_links.index.str.contains("-reversed")]
-    DC_capacity = (
-        0.5 * (
-            DC_links.bus0.str.contains(region).astype(float) + 
-            DC_links.bus1.str.contains(region).astype(float)
-        ) * DC_links.length.multiply(DC_links.p_nom_opt)
-    ).sum()
-
-    return MW2GW * (AC_capacity + DC_capacity)
-#%%
-
-## Heat
-
-
-# This has to be defined differently to avoid code duplication
-
-
-def get_capacityN(_df, label, region, N=2):
-    if type(label) == list:
-        return sum(map(lambda lab: get_capacityN(_df, lab, region, N=N), label))
-
-    df = _df[_df.carrier==label].filter(like=region, axis=0)
-    if df.index.name == "Link":
-        return MW2GW * df.p_nom_opt.multiply(df["efficiency{}".format(N)]).sum()
-    else:
-        raise Exception("Received unexpected DataFrame.")
-
-    
 
 #%%
 
@@ -259,7 +158,7 @@ def get_ariadne_var(n, region):
     # Q: What about retrofitted gas power plants? -> Lisa
 
     var["Capacity|Electricity|Hydrogen|FC"] = \
-        get_capacity(n.generators, "H2 Fuel Cell", region)
+        get_capacity(n.links, "H2 Fuel Cell", region)
 
     var["Capacity|Electricity|Hydrogen"] = \
         var["Capacity|Electricity|Hydrogen|FC"]
@@ -339,6 +238,7 @@ def get_ariadne_var(n, region):
     
     var["Capacity|Electricity|Storage Reservoir|Vehicles"] = \
         get_reservoir_capacity(n.stores, "Li ion", region)
+    # Q: It seems that Li ion has been merged into battery storage??
 
     var["Capacity|Electricity|Storage Reservoir"] = \
         var["Capacity|Electricity|Storage Reservoir|Hydro Dam Reservoir"] + \
@@ -495,8 +395,17 @@ def get_ariadne_var(n, region):
     # TODO new technologies like rural air heat pump should be added!
 
     var["Capacity|Heat|Oil"] = \
-        get_capacity(n.links, "urban central oil boiler", region)
-    
+        get_capacity(
+            n.links, 
+            [
+                "rural oil boiler",
+                'urban decentral oil boiler',
+                "urban central oil boiler",
+            ],
+            region,
+        )
+    # Q: Check list for completeness!
+
     var["Capacity|Heat|Storage Converter"] = \
         get_capacity(
             n.links,
@@ -548,7 +457,30 @@ def get_ariadne_var(n, region):
     )
     # Q: Should heat capacity exclude storage converters (just like for elec)
     
-    var["Emissions|CO2"] = get_total_co2(n, region)
+    ## Emissions
+
+    var["Carbon Sequestration|BECCS"] = \
+        get_co2(
+            n,
+            [
+                "biogas to gas",
+                "solid biomass for industry CC",
+                "biogas to gas CC",
+                "urban central solid biomass CHP CC",
+            ],
+            region,
+        )     
+
+    var["Carbon Sequestration|DACCS"] = \
+        get_co2(n, "DAC", region)
+
+
+    var["Emissions|CO2"] = \
+        get_total_co2(n, region) 
+
+    # ! LULUCF should also be subtracted, we get from REMIND, 
+    # TODO how to add it here?
+    
     # Make sure these values are about right
     # var["Emissions|CO2|Energy and Industrial Processes"] = \  
     # var["Emissions|CO2|Industrial Processes"] = \ 
@@ -619,7 +551,7 @@ def get_ariadne_var(n, region):
             region,
         )
     # Q: Where should I add the CHPs?
-    # According to Ariadne Database in the Electricity
+    # ! According to Ariadne Database in the Electricity
 
     var["Emissions|CO2|Energy|Supply|Heat"] = \
         get_co2(n,
@@ -681,6 +613,136 @@ def get_ariadne_var(n, region):
     # var["Emissions|CO2|Energy|Supply|Other Sector"] = \   
     # var["Emissions|CO2|Energy|Supply|Solids"] = \ 
     # TODO Add (negative) BECCS emissions! (Use "co2 stored" and "co2 sequestered")
+
+
+    ## Primary Energy
+
+    var["Primary Energy|Oil|Heat"] = \
+        get_link_consumption(
+            n,
+            [
+                "rural oil boiler",
+                'urban decentral oil boiler',
+            ],
+            region,
+        )
+    # Q: Which types of oil boilers may exist?
+    # Should i always check all existing technologies, or filter by bus?
+    
+    var["Primary Energy|Oil|Electricity"] = \
+        get_link_consumption(n, "oil", region)
+    
+    var["Primary Energy|Oil"] = (
+        var["Primary Energy|Oil|Electricity"] 
+        + var["Primary Energy|Oil|Heat"] 
+        + get_link_consumption(
+            n,
+            [
+                "land transport oil",
+                "agriculture machinery oil",
+                "shipping oil",
+            ],
+            region,
+        )
+    )
+    var["Primary Energy|Gas|Heat"] = \
+        get_link_consumption(
+            n,
+            [
+                'urban central gas boiler',
+                'rural gas boiler',
+                'urban decentral gas boiler'
+            ],
+            region,
+        )
+    
+    var["Primary Energy|Gas|Electricity"] = \
+        get_link_consumption(
+            n,
+            [
+                'CCGT',
+                'OCGT',
+                'urban central gas CHP',
+                'urban central gas CHP CC',
+            ],
+            region,
+        )
+    # Adding the CHPs to electricity, see also Capacity|Electricity|Gas
+    # Q: pypsa to iamc SPLITS the CHPS. Should we do the same?
+    
+    var["Primary Energy|Gas"] = (
+        var["Primary Energy|Gas|Heat"]
+        + var["Primary Energy|Gas|Electricity"]
+        + get_link_consumption(
+            n,
+            [
+                'gas for industry', 
+                'gas for industry CC',
+            ],
+            region,
+        )
+    )
+
+    # ! There are CC sub-categories that could be used
+
+
+
+    var["Primary Energy|Coal|Electricity"] = \
+        get_link_consumption(n, "coal", region)
+    
+    var["Primary Energy|Coal"] = (
+        var["Primary Energy|Coal|Electricity"] 
+        + get_link_consumption(n, "coal for industry", region)
+    )
+
+
+    var["Primary Energy|Fossil"] = (
+        var["Primary Energy|Coal"]
+        + var["Primary Energy|Gas"]
+        + var["Primary Energy|Oil"]
+    )
+
+    var["Secondary Energy|Electricity|Coal|Hard Coal"] = \
+        get_link_production(n, "coal", region)
+    
+
+    var["Secondary Energy|Electricity|Coal"] = (
+        var["Secondary Energy|Electricity|Coal|Hard Coal"] 
+        + get_link_production(n, "lignite", region)
+    )
+    
+    var["Secondary Energy|Electricity|Oil"] = \
+        get_link_production(n, "oil", region)
+    
+    var["Secondary Energy|Electricity|Gas"] = \
+        get_link_production(
+            n,
+            [
+                'CCGT',
+                'OCGT',
+                'urban central gas CHP',
+                'urban central gas CHP CC',
+            ],
+            region,
+        )
+
+
+    var["Secondary Energy|Electricity|Fossil"] = (
+        var["Secondary Energy|Electricity|Gas"]
+        + var["Secondary Energy|Electricity|Oil"]
+        + var["Secondary Energy|Electricity|Coal"]
+    )
+
+
+    var["Secondary Energy|Hydrogen|Electricity"] = \
+        get_link_production(n, 'H2 Electrolysis', region)
+    # Q: correct units?
+    
+    var["Secondary Energy|Hydrogen|Gas"] = \
+        get_link_production(n, ["SMR", "SMR CC"], region)
+    # Q: Why does SMR not consume heat or electricity?
+
+
     return var
 
 
@@ -732,6 +794,8 @@ df.to_excel(
     "/home/micha/git/pypsa-exporter/pypsa_output.xlsx",
     index=False
 )
+# !: Check for integer zeros in the xlsx-file. They may indicate missing
+# technologies
 
 # %%
 # costs = pd.read_csv(
@@ -740,29 +804,53 @@ df.to_excel(
 #     names=["variable", "capital", "type", *years],
 # )
 # "2005", "2010", "2015", "2020", "2025", "2030", "2035", 
+
+
 # "2040", "2045", "2050", "2060", "2070", "2080", "2090", "2100"])
-n = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2030}.nc")
+n = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2020}.nc")
+
+
+n30 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2030}.nc")
+
+n40 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2040}.nc")
+
+n50 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2050}.nc")
+
 region="DE"
 # # %% OLD
  
+# It's important to also regard the bus carrier "co2 stored", for this to
+# work correctly. Even if I fix it, it might break again with the 
+# # introduction of "co2 sequestered"
 
-# def get_total_co2(n, region):
-#     # including international bunker fuels and negative emissions
-#     df = n.links.filter(like=region, axis=0)
+# def get_total_co2_supply(n, region):
+#     return t2Mt * n.statistics.supply(
+#         bus_carrier="co2",
+#         groupby=n.statistics.groupers.get_name_bus_and_carrier
+#     ).filter(like=region).groupby("carrier").sum().sum()
 
-#     co2 = 0
-#     for port in [col[3:] for col in df if col.startswith("bus")]:
-#         links = df.index[df[f"bus{port}"] == "co2 atmosphere"]
-#         if port == "0":
-#             co2 += -1. * n.links_t["p0"][links].multiply(
-#                 n.snapshot_weightings.generators,
-#                 axis=0,
-#             ).values.sum()
-#         else:
-#             co2 += n.links_t[f"p{port}"][links].multiply(
-#                 n.snapshot_weightings.generators,
-#                 axis=0,
-#             ).values.sum()
-#     return t2Mt * co2
+# def get_co2_supply(n, carrier, region):
+#     # If a technology is not built, it does not show up in n.statistics
+#     # What to do in this case?
+#     if type(carrier) == list:
+#         return sum([get_co2_supply(n, car, region) for car in carrier])
+    
+#     stats = n.statistics.supply(
+#         bus_carrier="co2",
+#         groupby=n.statistics.groupers.get_name_bus_and_carrier
+#     ).filter(like=region).groupby("carrier").sum()
 
+#     if carrier not in stats.index:
+#         print("Warning, ", carrier, " not found, maybe not built!")
+#         return 0
+#     return t2Mt * stats[carrier]
+
+# # !!! This mistakenly got the charger, not the discharger capacity                                     
+# def get_converter_capacity(n, label, region):
+#     _idx = n.links.bus0.isin(n.stores[n.stores.carrier == label].bus)
+#     df = n.links[_idx].filter(like=region, axis=0)
+#     return MW2GW * df.p_nom_opt.multiply(df.efficiency).sum()
+# %%
+# n50.links_t["p0"][n50.links[n50.links.carrier=="DAC"].index].sum().sum()
+# n.statistics.energy_balance(aggregate_bus=False).xs("co2 atmosphere", level="bus").groupby("carrier").sum().sort_values()
 # %%
