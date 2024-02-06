@@ -751,6 +751,28 @@ def get_ariadne_var(n, region):
     )
     # Q: PHS produces negative electricity, because of storage losses
     # Q: Should it be considered here??
+    var["Secondary Energy|Heat|Gas"] = (
+        sum_link_output(
+            n,
+            [
+                'urban central gas boiler',
+                'rural gas boiler',
+                'urban decentral gas boiler',
+            ],
+            region,
+        ) 
+        + sum_link_output(
+            n,
+            [
+                'urban central gas CHP',
+                'urban central gas CHP CC',
+            ],
+            region,
+            port="p2"
+        ) 
+    )
+    # Q: Make sure to provide a comprehensive list of boilers
+
 
     var["Secondary Energy|Hydrogen|Electricity"] = \
         sum_link_output(n, 'H2 Electrolysis', region)
