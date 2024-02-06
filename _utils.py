@@ -1,8 +1,137 @@
 MW2GW = 1e-3
 t2Mt = 1e-6
-MWh2PJ=3.6e-6 
+MWh2PJ = 3.6e-6 
+
+# %% More abstractions
+
+def _get_t_sum(df, df_t, carrier, region, snapshot_weightings, port):
+    if type(carrier) == list:
+        return sum(
+            [
+                _get_t_sum(
+                    df, df_t, car, region, snapshot_weightings, port
+                ) for car in carrier
+            ]            
+        )
+    idx = df[df.carrier == carrier].filter(like=region, axis=0).index
+
+    return df_t[port][idx].multiply(
+        snapshot_weightings,
+        axis=0,
+    ).values.sum()
+
+
+def sum_link_input(n, carrier, region, port="p0"):
+    return MWh2PJ * _get_t_sum(
+        n.links,
+        n.links_t,
+        carrier,
+        region,
+        n.snapshot_weightings.generators,
+        port,
+    )
+
+def sum_link_output(n, carrier, region, port="p1"):
+    return -1 * sum_link_input(
+        n,
+        carrier,
+        region,
+        port=port,
+    )
+
+def sum_load(n, carrier, region):
+    return MWh2PJ * _get_t_sum(
+        n.loads,
+        n.loads_t,
+        carrier,
+        region,
+        n.snapshot_weightings.generators,
+        "p",
+    )   
+
+def sum_generator_output(n, carrier, region):
+    return -1 * MWh2PJ * _get_t_sum(
+        n.generators,
+        n.generators_t,
+        carrier,
+        region,
+        n.snapshot_weightings.generators,
+        "p",
+    )
+
+def sum_storage_unit_output(n, carrier, region):
+    return -1 * MWh2PJ * _get_t_sum(
+        n.storage_units,
+        n.storage_units_t,
+        carrier,
+        region,
+        n.snapshot_weightings.generators,
+        "p",
+    )
+
+def sum_co2(n, carrier, region):
+    if type(carrier) == list:
+        return sum([sum_co2(n, car, region) for car in carrier])
+    try:
+        port = n.links.groupby(
+            "carrier"
+        ).first().loc[
+            carrier
+        ].filter(
+            like="bus"
+        ).tolist().index("co2 atmosphere")
+    except KeyError:
+        print(
+            "Warning: carrier `", carrier, "` not found in network.links.carrier!",
+            sep="")
+        return 0
+
+    return -1 * t2Mt * _get_t_sum(
+        n.links,
+        n.links_t,
+        carrier,
+        region,
+        n.snapshot_weightings.generators,
+        f"p{port}",
+    )
+
 
 #%% CO2
+
+def get_co2(n, carrier, region):
+    # including international bunker fuels and negative emissions
+    if type(carrier) == list:
+        return sum([get_co2(n, car, region) for car in carrier])
+    
+    df = n.links[n.links.carrier == carrier].filter(like=region, axis=0)
+
+    co2 = 0
+    for port in [col[3:] for col in df if col.startswith("bus")]:
+        links = df.index[df[f"bus{port}"] == "co2 atmosphere"]
+        co2 -= n.links_t[f"p{port}"][links].multiply(
+            n.snapshot_weightings.generators,
+            axis=0,
+        ).values.sum()
+    return t2Mt * co2
+
+
+
+def get_link_production(n, carrier, region):
+    if type(carrier) == list:
+        return sum(
+            [get_link_production(n, car, region) for car in carrier]
+        )
+    
+    df = n.links[n.links.carrier == carrier].filter(
+        like=region, 
+        axis=0,
+    )
+
+    return -1 * MWh2PJ * n.links_t.p1[df.index].multiply(
+        n.snapshot_weightings.generators,
+        axis=0,
+    ).values.sum()
+
 
 def get_load_consumption(n, carrier, region):
     if type(carrier) == list:
@@ -38,21 +167,7 @@ def get_link_consumption(n, carrier, region):
         axis=0,
     ).values.sum()
 
-def get_link_production(n, carrier, region):
-    if type(carrier) == list:
-        return sum(
-            [get_link_production(n, car, region) for car in carrier]
-        )
-    
-    df = n.links[n.links.carrier == carrier].filter(
-        like=region, 
-        axis=0,
-    )
 
-    return -1 * MWh2PJ * n.links_t.p1[df.index].multiply(
-        n.snapshot_weightings.generators,
-        axis=0,
-    ).values.sum()
 
 
 
@@ -86,23 +201,10 @@ def get_total_co2(n, region):
     return t2Mt * co2
 
 
-def get_co2(n, carrier, region):
-    # including international bunker fuels and negative emissions
-    if type(carrier) == list:
-        return sum([get_co2(n, car, region) for car in carrier])
-    
-    df = n.links[n.links.carrier == carrier].filter(like=region, axis=0)
-
-    co2 = 0
-    for port in [col[3:] for col in df if col.startswith("bus")]:
-        links = df.index[df[f"bus{port}"] == "co2 atmosphere"]
-        co2 -= n.links_t[f"p{port}"][links].multiply(
-            n.snapshot_weightings.generators,
-            axis=0,
-        ).values.sum()
-    return t2Mt * co2
-
-
+def get_cols(df, carrier, like="bus"):
+    return df[
+        df.carrier.str.contains(carrier)
+    ].filter(like=like)
 
 #%%
 

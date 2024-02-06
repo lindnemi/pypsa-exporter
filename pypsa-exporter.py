@@ -460,7 +460,7 @@ def get_ariadne_var(n, region):
     ## Emissions
 
     var["Carbon Sequestration|BECCS"] = \
-        get_co2(
+        sum_co2(
             n,
             [
                 "biogas to gas",
@@ -472,7 +472,7 @@ def get_ariadne_var(n, region):
         )     
 
     var["Carbon Sequestration|DACCS"] = \
-        get_co2(n, "DAC", region)
+        sum_co2(n, "DAC", region)
 
 
     var["Emissions|CO2"] = \
@@ -490,14 +490,14 @@ def get_ariadne_var(n, region):
     # var["Emissions|CO2|Energy incl Bunkers|Demand"] = \
        
     var["Emissions|CO2|Energy|Demand|Industry"] = \
-        get_co2(
+        sum_co2(
             n,
             "naphtha for industry",
             region,
         )
 
     var["Emissions|CO2|Energy|Demand|Residential and Commercial"] = \
-        get_co2(
+        sum_co2(
             n,
             [
                 "residential rural gas boiler",
@@ -520,13 +520,13 @@ def get_ariadne_var(n, region):
     # Q: are the gas CHPs for Residential and Commercial demand??
 
     var["Emissions|CO2|Energy|Demand|Transportation"] = \
-        get_co2(n, "land transport oil", region)
+        sum_co2(n, "land transport oil", region)
   
     var["Emissions|CO2|Energy|Demand|Bunkers|Aviation"] = \
-        get_co2(n, "kerosene for aviation", region)
+        sum_co2(n, "kerosene for aviation", region)
     
     var["Emissions|CO2|Energy|Demand|Bunkers|Navigation"] = \
-        get_co2(n, ["shipping oil", "shipping methanol"], region)
+        sum_co2(n, ["shipping oil", "shipping methanol"], region)
     # Q: Is Methanol a fuel, or a shipped good?
     
     var["Emissions|CO2|Energy|Demand|Bunkers"] = \
@@ -534,14 +534,14 @@ def get_ariadne_var(n, region):
         var["Emissions|CO2|Energy|Demand|Bunkers|Navigation"]
     
     var["Emissions|CO2|Energy|Demand|Other Sector"] = \
-        get_co2(n, "agriculture machinery oil", region)
+        sum_co2(n, "agriculture machinery oil", region)
     
     
     var["Emissions|CO2|Energy|Supply|Electricity"] = \
-        get_co2(n,
+        sum_co2(n,
             [
-                "Combined-Cycle Gas",
-                "Open-Cycle Gas",
+                "OCGT",
+                "CCGT",
                 "coal",
                 "lignite",
                 "oil",
@@ -554,7 +554,7 @@ def get_ariadne_var(n, region):
     # ! According to Ariadne Database in the Electricity
 
     var["Emissions|CO2|Energy|Supply|Heat"] = \
-        get_co2(n,
+        sum_co2(n,
             [
                 "residential rural gas boiler",
                 "residential rural oil boiler",
@@ -578,7 +578,7 @@ def get_ariadne_var(n, region):
 
     # var["Emissions|CO2|Supply|Non-Renewable Waste"] = \   
     var["Emissions|CO2|Energy|Supply|Hydrogen"] = \
-        get_co2(n,
+        sum_co2(n,
             [
                 "SMR",
                 "SMR CC",
@@ -587,9 +587,9 @@ def get_ariadne_var(n, region):
         )
     
     var["Emissions|CO2|Energy|Supply|Gases"] = \
-        get_co2(n, "naphtha for industry", region)
+        sum_co2(n, "naphtha for industry", region)
     var["Emissions|CO2|Energy|Supply|Liquids"] = \
-        get_co2(
+        sum_co2(
             n,
             [
                 "agriculture machinery oil",
@@ -618,7 +618,7 @@ def get_ariadne_var(n, region):
     ## Primary Energy
 
     var["Primary Energy|Oil|Heat"] = \
-        get_link_consumption(
+        sum_link_input(
             n,
             [
                 "rural oil boiler",
@@ -630,12 +630,12 @@ def get_ariadne_var(n, region):
     # Should i always check all existing technologies, or filter by bus?
     
     var["Primary Energy|Oil|Electricity"] = \
-        get_link_consumption(n, "oil", region)
+        sum_link_input(n, "oil", region)
     
     var["Primary Energy|Oil"] = (
         var["Primary Energy|Oil|Electricity"] 
         + var["Primary Energy|Oil|Heat"] 
-        + get_link_consumption(
+        + sum_link_input(
             n,
             [
                 "land transport oil",
@@ -646,7 +646,7 @@ def get_ariadne_var(n, region):
         )
     )
     var["Primary Energy|Gas|Heat"] = \
-        get_link_consumption(
+        sum_link_input(
             n,
             [
                 'urban central gas boiler',
@@ -657,7 +657,7 @@ def get_ariadne_var(n, region):
         )
     
     var["Primary Energy|Gas|Electricity"] = \
-        get_link_consumption(
+        sum_link_input(
             n,
             [
                 'CCGT',
@@ -673,7 +673,7 @@ def get_ariadne_var(n, region):
     var["Primary Energy|Gas"] = (
         var["Primary Energy|Gas|Heat"]
         + var["Primary Energy|Gas|Electricity"]
-        + get_link_consumption(
+        + sum_link_input(
             n,
             [
                 'gas for industry', 
@@ -688,11 +688,11 @@ def get_ariadne_var(n, region):
 
 
     var["Primary Energy|Coal|Electricity"] = \
-        get_link_consumption(n, "coal", region)
+        sum_link_input(n, "coal", region)
     
     var["Primary Energy|Coal"] = (
         var["Primary Energy|Coal|Electricity"] 
-        + get_link_consumption(n, "coal for industry", region)
+        + sum_link_input(n, "coal for industry", region)
     )
 
 
@@ -703,19 +703,19 @@ def get_ariadne_var(n, region):
     )
 
     var["Secondary Energy|Electricity|Coal|Hard Coal"] = \
-        get_link_production(n, "coal", region)
+        sum_link_output(n, "coal", region)
     
 
     var["Secondary Energy|Electricity|Coal"] = (
         var["Secondary Energy|Electricity|Coal|Hard Coal"] 
-        + get_link_production(n, "lignite", region)
+        + sum_link_output(n, "lignite", region)
     )
     
     var["Secondary Energy|Electricity|Oil"] = \
-        get_link_production(n, "oil", region)
+        sum_link_output(n, "oil", region)
     
     var["Secondary Energy|Electricity|Gas"] = \
-        get_link_production(
+        sum_link_output(
             n,
             [
                 'CCGT',
@@ -726,6 +726,18 @@ def get_ariadne_var(n, region):
             region,
         )
 
+    var["Secondary Energy|Electricity|Biomass"] = \
+        sum_link_output(
+            n,
+            [
+                'urban central solid biomass CHP',
+                'urban central solid biomass CHP CC',
+            ],
+            region,
+        )
+    # ! Biogas to gas should go into this category
+    # How to do that? (trace e.g., biogas to gas -> CCGT)
+    # If so: Should double counting with |Gas be avoided?
 
     var["Secondary Energy|Electricity|Fossil"] = (
         var["Secondary Energy|Electricity|Gas"]
@@ -733,14 +745,51 @@ def get_ariadne_var(n, region):
         + var["Secondary Energy|Electricity|Coal"]
     )
 
+    var["Secondary Energy|Electricity|Hydro"] = (
+        sum_storage_unit_output(n, ["PHS", "hydro"], region)
+        + sum_generator_output(n, "ror", region)
+    )
+    # Q: PHS produces negative electricity, because of storage losses
+    # Q: Should it be considered here??
 
     var["Secondary Energy|Hydrogen|Electricity"] = \
-        get_link_production(n, 'H2 Electrolysis', region)
+        sum_link_output(n, 'H2 Electrolysis', region)
     # Q: correct units?
     
     var["Secondary Energy|Hydrogen|Gas"] = \
-        get_link_production(n, ["SMR", "SMR CC"], region)
+        sum_link_output(n, ["SMR", "SMR CC"], region)
     # Q: Why does SMR not consume heat or electricity?
+
+
+    var["Secondary Energy|Liquids|Hydrogen"] = \
+        sum_link_output(
+            n,
+            [
+                "methanolisation",
+                "Fischer-Tropsch",
+            ],
+            region,
+        )
+    
+    var["Secondary Energy|Gases|Hydrogen"] = \
+        sum_link_output(
+            n,
+            [
+                "Sabatier",
+            ],
+            region,
+        )
+    
+    var["Secondary Energy|Gases|Biomass"] = \
+        sum_link_output(
+            n,
+            [
+                "biogas to gas",
+                "biogas to gas CC",
+            ],
+            region,
+        )
+
 
 
     return var
@@ -748,6 +797,7 @@ def get_ariadne_var(n, region):
 
 # uses the global variables model, scenario and var2unit. For now.
 def get_data(year):
+    print("Evaluating year ", year, ".", sep="")
     n = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{year}.nc")
     
     var = get_ariadne_var(n, "DE")
@@ -829,11 +879,11 @@ region="DE"
 #         groupby=n.statistics.groupers.get_name_bus_and_carrier
 #     ).filter(like=region).groupby("carrier").sum().sum()
 
-# def get_co2_supply(n, carrier, region):
+# def sum_co2_supply(n, carrier, region):
 #     # If a technology is not built, it does not show up in n.statistics
 #     # What to do in this case?
 #     if type(carrier) == list:
-#         return sum([get_co2_supply(n, car, region) for car in carrier])
+#         return sum([sum_co2_supply(n, car, region) for car in carrier])
     
 #     stats = n.statistics.supply(
 #         bus_carrier="co2",
