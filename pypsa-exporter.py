@@ -18,7 +18,8 @@ from _utils import *
 
 # Defining global varibales
 
-MWh2TJ=3.6e-3 
+TWh2PJ = 3.6
+MWh2TJ = 3.6e-3 
 MW2GW = 1e-3
 t2Mt = 1e-6
 
@@ -54,8 +55,13 @@ keys, values = zip(*config['scenario'].items())
 permutations_dicts = [dict(zip(keys, v)) for v in product(*values)]
 scenarios = []
 for scenario_i in permutations_dicts:
-    scenarios.append("elec_s{simpl}_{clusters}_l{ll}_{opts}_{sector_opts}_".format(**scenario_i))
+    scenarios.append(
+        "elec_s{simpl}_{clusters}_l{ll}_{opts}_{sector_opts}_".format(
+            **scenario_i
+        )
+    )
 scenario = scenarios[0]
+
 
 #%%
 
@@ -75,7 +81,7 @@ var2unit = pd.read_excel(
 
 #%%
 
-def get_ariadne_var(n, region):
+def get_ariadne_var(n, industry_demand, region):
 
     var = {}
 
@@ -359,13 +365,7 @@ def get_ariadne_var(n, region):
     # Capacity|Heat
     var["Capacity|Heat|Gas"] = get_capacity(
         n.links,
-        [
-            'residential rural gas boiler', 
-            'services rural gas boiler',
-            'residential urban decentral gas boiler',
-            'services urban decentral gas boiler', 
-            'urban central gas boiler'
-        ],
+        n.links.carrier.filter(like="gas boiler").unique().tolist(),
         region
     ) + get_capacityN(
         n.links, 
@@ -489,35 +489,28 @@ def get_ariadne_var(n, region):
     # var["Emissions|CO2|Energy|Demand"] = \    
     # var["Emissions|CO2|Energy incl Bunkers|Demand"] = \
        
-    var["Emissions|CO2|Energy|Demand|Industry"] = \
-        sum_co2(
-            n,
-            "naphtha for industry",
-            region,
-        )
+    # var["Emissions|CO2|Energy|Demand|Industry"] = \
+    #     sum_co2(
+    #         n,
+    #         "naphtha for industry",
+    #         region,
+    #     )
+    # Q: these are emissions through burning of plastic waste!!! 
+
 
     var["Emissions|CO2|Energy|Demand|Residential and Commercial"] = \
         sum_co2(
             n,
             [
-                "residential rural gas boiler",
-                "residential rural oil boiler",
-                "residential urban decentral gas boiler",
-                "residential urban decentral oil boiler",
-                "services rural gas boiler",
-                "services rural oil boiler",
-                "services urban decentral gas boiler",
-                "services urban decentral oil boiler",
-                "urban central gas CHP",
-                "urban central gas CHP CC",
-                "urban central gas boiler",
-                "urban central oil boiler",
-                "urban decentral gas boiler",
-                "urban decentral oil boiler",
+                *n.links.carrier.filter(like="oil boiler").unique(),
+                *n.links.carrier.filter(like="gas boiler").unique(),
+                # matches "gas CHP CC" as well
+                *n.links.carrier.filter(like="gas CHP").unique(),
             ],
             region
         )
     # Q: are the gas CHPs for Residential and Commercial demand??
+    # Q: Also residential elec demand!
 
     var["Emissions|CO2|Energy|Demand|Transportation"] = \
         sum_co2(n, "land transport oil", region)
@@ -537,7 +530,7 @@ def get_ariadne_var(n, region):
         sum_co2(n, "agriculture machinery oil", region)
     
     
-    var["Emissions|CO2|Energy|Supply|Electricity"] = \
+    var["Emissions|Gross Fossil CO2|Energy|Supply|Electricity"] = \
         sum_co2(n,
             [
                 "OCGT",
@@ -550,24 +543,20 @@ def get_ariadne_var(n, region):
             ], 
             region,
         )
+    
+    var["Emissions|CO2|Energy|Supply|Electricity"] = (
+        var["Emissions|Gross Fossil CO2|Energy|Supply|Electricity"]
+        + sum_co2(n, "urban central solid biomass CHP CC", region)
+    )
+
     # Q: Where should I add the CHPs?
     # ! According to Ariadne Database in the Electricity
 
     var["Emissions|CO2|Energy|Supply|Heat"] = \
         sum_co2(n,
             [
-                "residential rural gas boiler",
-                "residential rural oil boiler",
-                "residential urban decentral gas boiler",
-                "residential urban decentral oil boiler",
-                "services rural gas boiler",
-                "services rural oil boiler",
-                "services urban decentral gas boiler",
-                "services urban decentral oil boiler",
-                "urban central gas boiler",
-                "urban central oil boiler",
-                "urban decentral gas boiler",
-                "urban decentral oil boiler",
+                *n.links.carrier.filter(like="oil boiler").unique(),
+                *n.links.carrier.filter(like="gas boiler").unique(),
             ], 
             region,
         )
@@ -586,8 +575,11 @@ def get_ariadne_var(n, region):
             region,
         )
     
-    var["Emissions|CO2|Energy|Supply|Gases"] = \
+    #var["Emissions|CO2|Energy|Supply|Gases"] = \
+    var["Emissions|CO2|Supply|Non-Renewable Waste"] = \
         sum_co2(n, "naphtha for industry", region)
+    # Q: These are plastic combustino emissions, not Gases. What then are gases?
+
     var["Emissions|CO2|Energy|Supply|Liquids"] = \
         sum_co2(
             n,
@@ -603,8 +595,8 @@ def get_ariadne_var(n, region):
     # Q: Some things show up on Demand as well as Supply side
 
     var["Emissions|CO2|Energy|Supply|Liquids and Gases"] = \
-        var["Emissions|CO2|Energy|Supply|Gases"] + \
-        var["Emissions|CO2|Energy|Supply|Liquids"] 
+        var["Emissions|CO2|Energy|Supply|Liquids"]
+        # var["Emissions|CO2|Energy|Supply|Gases"] + \
     
     var["Emissions|CO2|Energy|Supply"] = \
         var["Emissions|CO2|Energy|Supply|Liquids and Gases"] + \
@@ -620,14 +612,10 @@ def get_ariadne_var(n, region):
     var["Primary Energy|Oil|Heat"] = \
         sum_link_input(
             n,
-            [
-                "rural oil boiler",
-                'urban decentral oil boiler',
-            ],
+            n.links.carrier.filter(like="oil boiler").unique().tolist(),
             region,
         )
-    # Q: Which types of oil boilers may exist?
-    # Should i always check all existing technologies, or filter by bus?
+
     
     var["Primary Energy|Oil|Electricity"] = \
         sum_link_input(n, "oil", region)
@@ -648,11 +636,7 @@ def get_ariadne_var(n, region):
     var["Primary Energy|Gas|Heat"] = \
         sum_link_input(
             n,
-            [
-                'urban central gas boiler',
-                'rural gas boiler',
-                'urban decentral gas boiler'
-            ],
+            n.links.carrier.filter(like="gas boiler").unique().tolist(),
             region,
         )
     
@@ -692,8 +676,9 @@ def get_ariadne_var(n, region):
     
     var["Primary Energy|Coal"] = (
         var["Primary Energy|Coal|Electricity"] 
-        + sum_link_input(n, "coal for industry", region)
+        # + sum_load(n, "coal for industry", region)
     )
+    # Q: It's strange to sum a load here, probably wrong (and 0 anyways)
 
 
     var["Primary Energy|Fossil"] = (
@@ -754,11 +739,7 @@ def get_ariadne_var(n, region):
     var["Secondary Energy|Heat|Gas"] = (
         sum_link_output(
             n,
-            [
-                'urban central gas boiler',
-                'rural gas boiler',
-                'urban decentral gas boiler',
-            ],
+            n.links.carrier.filter(like="oil boiler").unique().tolist(),
             region,
         ) 
         + sum_link_output(
@@ -811,7 +792,100 @@ def get_ariadne_var(n, region):
             ],
             region,
         )
+    # !!! biogas to gas is an EU Bus and gets filtered out by "region"
 
+    # Final energy
+
+    var["Final Energy|Industry excl Non-Energy Use|Electricity"] = \
+        sum_load(n, "industry electricity", region)
+    
+    var["Final Energy|Industry excl Non-Energy Use|Heat"] = \
+        sum_load(n, "low-temperature heat for industry", region)
+    
+    # var["Final Energy|Industry excl Non-Energy Use|Solar"] = \
+    # !: Included in |Heat
+
+    # var["Final Energy|Industry excl Non-Energy Use|Geothermal"] = \
+    # Not implemented
+
+    var["Final Energy|Industry excl Non-Energy Use|Gases"] = TWh2PJ * (
+        industry_demand[
+            ["methane"]
+        ].filter(like=region, axis=0).values.sum()
+    )
+    # ! "gas for industry" is not regionally resolved
+
+    # var["Final Energy|Industry excl Non-Energy Use|Power2Heat"] = \
+    # Q: misleading description
+
+    var["Final Energy|Industry excl Non-Energy Use|Hydrogen"] = \
+        sum_load(n, "H2 for industry", region)
+    
+
+    var["Final Energy|Industry excl Non-Energy Use|Liquids"] = \
+        sum_load(n, "naphtha for industry", region)
+    
+
+    # var["Final Energy|Industry excl Non-Energy Use|Other"] = \
+
+    var["Final Energy|Industry excl Non-Energy Use|Solids"] = TWh2PJ * (
+        industry_demand[
+            ["coal", "coke", "solid biomass"]
+        ].filter(like=region, axis=0).values.sum()
+    )
+        
+    # var["Final Energy|Industry excl Non-Energy Use|Non-Metallic Minerals"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Chemicals"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Steel"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Steel|Primary"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Steel|Secondary"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Pulp and Paper"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Food and Tobacco"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Non-Ferrous Metals"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Engineering"] = \
+    # var["Final Energy|Industry excl Non-Energy Use|Vehicle Construction"] = \
+
+
+    # var["Final Energy|Residential and Commercial"] = \
+    var["Final Energy|Residential and Commercial|Electricity"] = \
+        sum_load(n, "electricity", region)
+    # var["Final Energy|Residential and Commercial|Gases"] = \
+    var["Final Energy|Residential and Commercial|Heat"] = \
+        sum_load(
+            n,
+            [
+                "urban central heat",
+                "urban decentral heat",
+                "rural heat",
+            ],
+            region,
+        )
+    # var["Final Energy|Residential and Commercial|Hydrogen"] = \
+    # var["Final Energy|Residential and Commercial|Liquids"] = \
+    # var["Final Energy|Residential and Commercial|Other"] = \
+    # var["Final Energy|Residential and Commercial|Solids"] = \
+    # var["Final Energy|Residential and Commercial|Solids|Biomass"] = \
+    # var["Final Energy|Residential and Commercial|Solids|Coal"] = \
+    # Q: Everything else seems to be not implemented
+
+    # var["Final Energy|Transportation|Other"] = \
+
+    var["Final Energy|Transportation"] = \
+        sum_load(
+            n,
+            [
+                "land transport oil",
+                "land transport EV",
+                "land transport fuel cell",
+                "shipping oil", 
+                "shipping methanol",
+                # "H2 for shipping" # not used
+                "kerosene for aviation",            
+            ],
+            region
+        )
+    # !!! From every use of shipping and aviation carriers, we should find a way
+    # to separate domestic from international contributions
 
 
     return var
@@ -821,8 +895,15 @@ def get_ariadne_var(n, region):
 def get_data(year):
     print("Evaluating year ", year, ".", sep="")
     n = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{year}.nc")
-    
-    var = get_ariadne_var(n, "DE")
+    industry_demand = pd.read_csv(
+        "resources/industrial_energy_demand_elec_s{simpl}_{clusters}_{year}.csv".format(
+            year=year, 
+            **permutations_dicts[0],
+        ), 
+        index_col="TWh/a (MtCO2/a)",
+    )
+    industry_demand.index.name = "bus"
+    var = get_ariadne_var(n, industry_demand, "DE")
 
     data = []
     for v in var:
@@ -879,7 +960,7 @@ df.to_excel(
 
 
 # "2040", "2045", "2050", "2060", "2070", "2080", "2090", "2100"])
-n = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2020}.nc")
+n = n20 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2020}.nc")
 
 
 n30 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2030}.nc")
