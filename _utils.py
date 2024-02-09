@@ -97,7 +97,8 @@ def sum_co2(n, carrier, region):
 
 
 #%% CO2
-
+#n50.statistics.supply(bus_carrier="co2 stored", groupby=groupby).filter(like="DE").groupby("carrier").sum()
+# n50.statistics.withdrawal(bus_carrier="co2", groupby=groupby).filter(like="DE").groupby("carrier").sum()
 def get_co2(n, carrier, region):
     # including international bunker fuels and negative emissions
     if type(carrier) == list:
@@ -243,6 +244,9 @@ def get_reservoir_capacity(_df, label, region):
     else:
         raise Exception("Received unexpected DataFrame.")
     
+# groupby=n.statistics.groupers.get_name_bus_and_carrier
+# n.statistics.optimal_capacity( storage=True).loc["Store"]
+    
 def get_line_capacity(n, region):
     AC_capacity = (
         0.5 * (
@@ -280,4 +284,5 @@ def get_capacityN(_df, label, region, N=2):
     else:
         raise Exception("Received unexpected DataFrame.")
 
-    
+# groupby=n.statistics.groupers.get_name_bus_and_carrier
+# n.statistics.optimal_capacity(bus_carrier="urban central heat", groupby=groupby).filter(like="DE").groupby("carrier").sum()

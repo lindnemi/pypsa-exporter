@@ -118,7 +118,8 @@ def get_ariadne_var(n, industry_demand, region):
     # var["Capacity|Electricity|Coal|Lignite|w/o CCS"] = 
     # var["Capacity|Electricity|Coal|w/ CCS"] = 
     # var["Capacity|Electricity|Coal|w/o CCS"] = 
-    # ? CCS for coal Implemented, but not activated, should we use it?
+    # Q: CCS for coal Implemented, but not activated, should we use it?
+    # !: No, because of Kohleausstieg
     # > config: coal_cc
 
 
@@ -292,6 +293,8 @@ def get_ariadne_var(n, industry_demand, region):
     get_capacity(n.generators, 'residential urban decentral solar thermal', region) + \
     get_capacity(n.generators, 'services urban decentral solar thermal', region) + \
     get_capacity(n.generators, 'urban central solar thermal', region)
+    # ! Use a filter
+
 
     # !!! Missing in the Ariadne database
     #  We could be much more detailed for the heat sector (as for electricity)
@@ -344,7 +347,7 @@ def get_ariadne_var(n, industry_demand, region):
             [
                 'Sabatier', 
                 'Fischer-Tropsch', 
-                # 'DAC' 
+                # 'DAC' # consumes heat
             ],
             region,
             N=3,
@@ -355,8 +358,7 @@ def get_ariadne_var(n, industry_demand, region):
             region,
             N=4,
         )
-    # Q: Why has DAC negative heat efficiency? Should it be excluded then? 
-    # ! The DAC process needs heat, it should not be included 
+
     # !!! Missing in the Ariadne database
 
 
@@ -393,6 +395,7 @@ def get_ariadne_var(n, industry_demand, region):
             region
         )
     # TODO new technologies like rural air heat pump should be added!
+    # use a filter!
 
     var["Capacity|Heat|Oil"] = \
         get_capacity(
@@ -520,7 +523,6 @@ def get_ariadne_var(n, industry_demand, region):
     
     var["Emissions|CO2|Energy|Demand|Bunkers|Navigation"] = \
         sum_co2(n, ["shipping oil", "shipping methanol"], region)
-    # Q: Is Methanol a fuel, or a shipped good?
     
     var["Emissions|CO2|Energy|Demand|Bunkers"] = \
         var["Emissions|CO2|Energy|Demand|Bunkers|Aviation"] + \
@@ -578,7 +580,8 @@ def get_ariadne_var(n, industry_demand, region):
     #var["Emissions|CO2|Energy|Supply|Gases"] = \
     var["Emissions|CO2|Supply|Non-Renewable Waste"] = \
         sum_co2(n, "naphtha for industry", region)
-    # Q: These are plastic combustino emissions, not Gases. What then are gases?
+    # Q: These are plastic combustino emissions, not Gases. 
+    # What then are gases?
 
     var["Emissions|CO2|Energy|Supply|Liquids"] = \
         sum_co2(
@@ -629,10 +632,14 @@ def get_ariadne_var(n, industry_demand, region):
                 "land transport oil",
                 "agriculture machinery oil",
                 "shipping oil",
+                "kerosene for aviation",
+                "naphtha for industry"
             ],
             region,
         )
-    )
+    )   
+    # n.statistics.withdrawal(bus_carrier="oil")
+
     var["Primary Energy|Gas|Heat"] = \
         sum_link_input(
             n,
@@ -792,7 +799,8 @@ def get_ariadne_var(n, industry_demand, region):
             ],
             region,
         )
-    # !!! biogas to gas is an EU Bus and gets filtered out by "region"
+    # Q: biogas to gas is an EU Bus and gets filtered out by "region"
+    # Fixed by biomass_spatial: True
 
     # Final energy
 
@@ -814,7 +822,10 @@ def get_ariadne_var(n, industry_demand, region):
         ].filter(like=region, axis=0).values.sum()
     )
     # ! "gas for industry" is not regionally resolved
-
+    # !!! probably this value is too low because instant electrification
+    # in 2020 / 2025 is assumed
+    
+    
     # var["Final Energy|Industry excl Non-Energy Use|Power2Heat"] = \
     # Q: misleading description
 
@@ -844,9 +855,9 @@ def get_ariadne_var(n, industry_demand, region):
     # var["Final Energy|Industry excl Non-Energy Use|Non-Ferrous Metals"] = \
     # var["Final Energy|Industry excl Non-Energy Use|Engineering"] = \
     # var["Final Energy|Industry excl Non-Energy Use|Vehicle Construction"] = \
+    # Q: Most of these could be found somewhere, but are model inputs!
 
-
-    # var["Final Energy|Residential and Commercial"] = \
+    
     var["Final Energy|Residential and Commercial|Electricity"] = \
         sum_load(n, "electricity", region)
     # var["Final Energy|Residential and Commercial|Gases"] = \
@@ -868,6 +879,11 @@ def get_ariadne_var(n, industry_demand, region):
     # var["Final Energy|Residential and Commercial|Solids|Coal"] = \
     # Q: Everything else seems to be not implemented
 
+    var["Final Energy|Residential and Commercial"] = (
+        var["Final Energy|Residential and Commercial|Electricity"]
+        + var["Final Energy|Residential and Commercial|Heat"]
+    )
+
     # var["Final Energy|Transportation|Other"] = \
 
     var["Final Energy|Transportation"] = \
@@ -887,6 +903,20 @@ def get_ariadne_var(n, industry_demand, region):
     # !!! From every use of shipping and aviation carriers, we should find a way
     # to separate domestic from international contributions
 
+
+    
+    var["Final Energy|Agriculture|Electricity"] = \
+        sum_load(n, "agriculture electricity", region)
+    var["Final Energy|Agriculture|Heat"] = \
+        sum_load(n, "agriculture heat", region)
+    var["Final Energy|Agriculture|Liquids"] = \
+        sum_load(n, "agriculture machinery oil", region)
+    # var["Final Energy|Agriculture|Gases"] = \
+    var["Final Energy|Agriculture"] = (
+        var["Final Energy|Agriculture|Electricity"]
+        + var["Final Energy|Agriculture|Heat"]
+        + var["Final Energy|Agriculture|Liquids"]
+    )
 
     return var
 
