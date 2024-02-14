@@ -91,7 +91,8 @@ def get_ariadne_prices(n, region):
 
     return var
 
-def get_ariadne_capacities(n, region):
+def get_capacities_heat(n, region):
+    var = pd.Series()
 
     kwargs = {
         'groupby': n.statistics.groupers.get_name_bus_and_carrier,
@@ -100,19 +101,144 @@ def get_ariadne_capacities(n, region):
 
     var = pd.Series()
 
-    capacities_AC = n.statistics.optimal_capacity(
-        bus_carrier="AC",
+    capacities_heat = n.statistics.optimal_capacity(
+        bus_carrier=[
+            "urban central heat",
+            "urban decentral heat",
+            "rural heat"
+        ],
+        **kwargs,
+    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
+
+
+    var["Capacity|Heat|Solar thermal"] = \
+        capacities_heat.filter(like="solar thermal").sum()
+
+    # !!! Missing in the Ariadne database
+    #  We could be much more detailed for the heat sector (as for electricity)
+    # if desired by Ariadne
+    #
+    var["Capacity|Heat|Biomass|w/ CCS"] = \
+        capacities_heat.get('urban central solid biomass CHP CC') 
+    var["Capacity|Heat|Biomass|w/o CCS"] = \
+        capacities_heat.get('urban central solid biomass CHP') \
+        +  capacities_heat.filter(like="biomass boiler").sum()
+    
+    var["Capacity|Heat|Biomass"] = \
+        var["Capacity|Heat|Biomass|w/ CCS"] + \
+        var["Capacity|Heat|Biomass|w/o CCS"]
+
+    assert var["Capacity|Heat|Biomass"] == \
+        capacities_heat.filter(like="biomass").sum()
+    
+    var["Capacity|Heat|Resistive heater"] = \
+        capacities_heat.filter(like="resistive heater").sum()
+    
+
+    
+    var["Capacity|Heat|Processes"] = \
+        capacities_heat.get([
+            "Fischer-Tropsch",
+            "H2 Electrolysis",
+            "H2 Fuel Cell",
+            "Sabatier",
+            "methanolisation"
+        ]) 
+
+    # !!! Missing in the Ariadne database
+
+
+
+
+    # Capacity|Heat
+    var["Capacity|Heat|Gas"] = \
+        capacities_heat.filter(like="gas boiler").sum() \
+        + capacities_heat.filter(like="gas CHP").sum()
+
+
+
+    
+    # var["Capacity|Heat|Geothermal"] =
+    # ! Not implemented 
+
+    var["Capacity|Heat|Heat pump"] = \
+        capacities_heat.filter(like="heat pump").sum()
+
+
+    var["Capacity|Heat|Oil"] = \
+        capacities_heat.filter(like="oil boiler").sum()
+
+    var["Capacity|Heat|Storage Converter"] = \
+        capacities_heat.filter(like="water tanks discharger").sum()
+
+    var["Capacity|Heat|Storage Reservoir"] = \
+        get_reservoir_capacity(
+            n.stores,
+            [
+                'residential rural water tanks',
+                'services rural water tanks',
+                'residential urban decentral water tanks',
+                'services urban decentral water tanks',
+                'urban central water tanks',
+            ],
+            region
+        )
+
+
+
+    # !!! New technologies get added as we develop the model.
+    # It would be helpful to have some double-checking, e.g.,
+    # by asserting that every technology gets added,
+    # or by computing the total independtly of the subtotals, 
+    # and summing the subcategories to compare to the total
+
+    # n.links.carrier[n.links.bus1.str.contains("heat")].unique()
+    # ^ same for other buses
+
+    # TODO check for typos
+    
+    var["Capacity|Heat"] = (
+        var["Capacity|Heat|Solar thermal"] +
+        var["Capacity|Heat|Electricity"] +
+        var["Capacity|Heat|Biomass"] +
+        var["Capacity|Heat|Oil"] +
+        var["Capacity|Heat|Gas"] +
+        var["Capacity|Heat|Processes"] +
+        var["Capacity|Heat|H2"] +
+        var["Capacity|Heat|Heat pump"]
+    )
+    # Q: Should heat capacity exclude storage converters (just like for elec)
+    
+
+    return var
+
+
+def get_capacities_other(n, region):
+    var = pd.Series()
+    return var
+
+def get_capacities_electricity(n, region):
+
+    kwargs = {
+        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+        'nice_names': False,
+    }
+
+    var = pd.Series()
+
+    capacities_electricity = n.statistics.optimal_capacity(
+        bus_carrier=["AC", "low voltage"],
         **kwargs,
     ).filter(like=region).groupby("carrier").sum().drop( 
         # transmission capacities
-        ["AC", "DC"],
+        ["AC", "DC", "electricity distribution grid"],
     ).multiply(MW2GW)
 
     var["Capacity|Electricity|Biomass|w/ CCS"] = \
-        capacities_AC.get('urban central solid biomass CHP CC')
+        capacities_electricity.get('urban central solid biomass CHP CC')
     
     var["Capacity|Electricity|Biomass|w/o CCS"] = \
-        capacities_AC.get('urban central solid biomass CHP')
+        capacities_electricity.get('urban central solid biomass CHP')
 
     var["Capacity|Electricity|Biomass|Solids"] = \
         var[[
@@ -122,17 +248,17 @@ def get_ariadne_capacities(n, region):
 
     # Ariadne does no checks, so we implement our own?
     assert var["Capacity|Electricity|Biomass|Solids"] == \
-        capacities_AC.filter(like="solid biomass").sum()
+        capacities_electricity.filter(like="solid biomass").sum()
 
     var["Capacity|Electricity|Biomass"] = \
         var["Capacity|Electricity|Biomass|Solids"]
 
 
     var["Capacity|Electricity|Coal|Hard Coal"] = \
-        capacities_AC.get('coal')                                              
+        capacities_electricity.get('coal')                                              
 
     var["Capacity|Electricity|Coal|Lignite"] = \
-        capacities_AC.get('lignite')
+        capacities_electricity.get('lignite')
     
     # var["Capacity|Electricity|Coal|Hard Coal|w/ CCS"] = 
     # var["Capacity|Electricity|Coal|Hard Coal|w/o CCS"] = 
@@ -156,16 +282,16 @@ def get_ariadne_capacities(n, region):
     # ! Not implemented, rarely used   
 
     var["Capacity|Electricity|Gas|CC"] = \
-        capacities_AC.get('CCGT')
+        capacities_electricity.get('CCGT')
     
     var["Capacity|Electricity|Gas|OC"] = \
-        capacities_AC.get('OCGT')
+        capacities_electricity.get('OCGT')
     
     var["Capacity|Electricity|Gas|w/ CCS"] =  \
-        capacities_AC.get('urban central gas CHP CC')  
+        capacities_electricity.get('urban central gas CHP CC')  
     
     var["Capacity|Electricity|Gas|w/o CCS"] =  \
-        capacities_AC.get('urban central gas CHP') + \
+        capacities_electricity.get('urban central gas CHP') + \
         var[[
             "Capacity|Electricity|Gas|CC",
             "Capacity|Electricity|Gas|OC",
@@ -182,7 +308,7 @@ def get_ariadne_capacities(n, region):
     # ! Not implemented
 
     var["Capacity|Electricity|Hydro"] = \
-        capacities_AC.get(['ror', 'hydro']).sum()
+        capacities_electricity.get(['ror', 'hydro']).sum()
     # Q!: Not counting PHS here, because it is a true storage,
     # as opposed to hydro
      
@@ -193,7 +319,7 @@ def get_ariadne_capacities(n, region):
     # Q: What about retrofitted gas power plants? -> Lisa
 
     var["Capacity|Electricity|Hydrogen|FC"] = \
-        capacities_AC.get("H2 Fuel Cell")
+        capacities_electricity.get("H2 Fuel Cell")
 
     var["Capacity|Electricity|Hydrogen"] = \
         var["Capacity|Electricity|Hydrogen|FC"]
@@ -202,7 +328,7 @@ def get_ariadne_capacities(n, region):
     # ! Not implemented
 
     var["Capacity|Electricity|Nuclear"] = \
-        capacities_AC.get("nuclear")
+        capacities_electricity.get("nuclear")
 
     # var["Capacity|Electricity|Ocean"] = 
     # ! Not implemented
@@ -212,24 +338,14 @@ def get_ariadne_capacities(n, region):
     # ! Not implemented
 
     var["Capacity|Electricity|Oil"] = \
-        capacities_AC.get("oil")
-    
-    # ! Probably this varibale should be in the Heat part of the script
-    # Filtering for multiple values is possible with the .isin(.) method
+        capacities_electricity.get("oil")
 
-    capacities_low_voltage = n.statistics.optimal_capacity(
-        bus_carrier="low voltage",
-        **kwargs,
-    ).filter(like=region).groupby("carrier").sum().drop( 
-        # transmission capacities
-        ["electricity distribution grid"],
-    ).multiply(MW2GW)
-    
+
     var["Capacity|Electricity|Solar|PV|Rooftop"] = \
-        capacities_low_voltage.get("solar rooftop")
+        capacities_electricity.get("solar rooftop")
     
     var["Capacity|Electricity|Solar|PV|Open Field"] = \
-        capacities_AC.get("solar") 
+        capacities_electricity.get("solar") 
 
     var["Capacity|Electricity|Solar|PV"] = \
         var[[
@@ -244,16 +360,16 @@ def get_ariadne_capacities(n, region):
         var["Capacity|Electricity|Solar|PV"]
     
     var["Capacity|Electricity|Wind|Offshore"] = \
-        capacities_AC.get(
+        capacities_electricity.get(
             ["offwind", "offwind-ac", "offwind-dc"]
         ).sum()
     # !: take care of "offwind" -> "offwind-ac"/"offwind-dc"
 
     var["Capacity|Electricity|Wind|Onshore"] = \
-        capacities_AC.get("onwind")
+        capacities_electricity.get("onwind")
     
     var["Capacity|Electricity|Wind"] = \
-        capacities_AC.filter(like="wind").sum()
+        capacities_electricity.filter(like="wind").sum()
     
     assert var["Capacity|Electricity|Wind"] == \
         var[[
@@ -266,17 +382,17 @@ def get_ariadne_capacities(n, region):
     # ! Not implemented
 
     var["Capacity|Electricity|Storage Converter|Hydro Dam Reservoir"] = \
-        capacities_AC.get('hydro')
+        capacities_electricity.get('hydro')
     
     var["Capacity|Electricity|Storage Converter|Pump Hydro"] = \
-        capacities_AC.get('PHS')
+        capacities_electricity.get('PHS')
 
     var["Capacity|Electricity|Storage Converter|Stationary Batteries"] = \
-        capacities_AC.get("battery discharger") + \
-        capacities_low_voltage.get("home battery discharger")
+        capacities_electricity.get("battery discharger") + \
+        capacities_electricity.get("home battery discharger")
 
     var["Capacity|Electricity|Storage Converter|Vehicles"] = \
-        capacities_low_voltage.get("V2G")
+        capacities_electricity.get("V2G")
     
     var["Capacity|Electricity|Storage Converter"] = \
         var[[
@@ -305,7 +421,6 @@ def get_ariadne_capacities(n, region):
     
     var["Capacity|Electricity|Storage Reservoir|Vehicles"] = \
         storage_capacities.get("Li ion") 
-    # Q: It seems that Li ion has been merged into battery storage??
 
     var["Capacity|Electricity|Storage Reservoir"] = \
         var[[
@@ -326,9 +441,23 @@ def get_ariadne_capacities(n, region):
             "Capacity|Electricity|Biomass",
             "Capacity|Electricity|Hydro",
             "Capacity|Electricity|Hydrogen",
+            "Capacity|Electricity|Nuclear",
             ]].sum()
 
-
+    # Test if we forgot something
+    _drop_idx = [
+        col for col in [
+            "PHS",
+            "battery discharger",
+            "home battery discharger",
+            "V2G",
+        ] if col in capacities_electricity.index
+    ]
+    assert abs(
+        var["Capacity|Electricity"]
+        - capacities_electricity.drop(_drop_idx).sum()
+    ) < 10e-10
+    
     return var
 
 def get_ariadne_final_energy(n, region, industry_demand):
