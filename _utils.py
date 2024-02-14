@@ -2,6 +2,13 @@ MW2GW = 1e-3
 t2Mt = 1e-6
 MWh2PJ = 3.6e-6
 
+
+# %% more helpers
+
+
+
+
+
 # %% More abstractions
 
 def _get_t_sum(df, df_t, carrier, region, snapshot_weightings, port):
