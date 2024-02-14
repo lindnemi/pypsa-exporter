@@ -7,7 +7,7 @@ MWh2PJ = 3.6e-6
 #n.statistics.withdrawal(bus_carrier="land transport oil", groupby=groupby, aggregate_time=False).filter(like="DE1 0",axis=0)
 
 # convert EURXXXX to EUR2020
-def get_prices(n, region):
+def get_ariadne_prices(n, region):
     var = {}
     groupby = n.statistics.groupers.get_name_bus_and_carrier
 
@@ -21,7 +21,7 @@ def get_prices(n, region):
     ).query( # Take care to exclude everything else at this bus
         "not carrier.str.contains('agriculture')"
          "& not carrier.str.contains('industry')"
-         "& not carrier.str.contains('services')"
+         "& not carrier.str.contains('urban central')"
     ).groupby("bus").sum().T 
 
     nodal_prices = n.buses_t.marginal_price[nodal_flows.columns] 

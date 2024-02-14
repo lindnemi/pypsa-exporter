@@ -484,7 +484,7 @@ df = reduce(
         right, 
         on=["Model", "Scenario", "Region", "Variable", "Unit"]), 
     yearly_dfs
-)
+) # directly use pd.merge?
 
 
 df.to_excel(
