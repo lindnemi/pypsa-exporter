@@ -1,5 +1,6 @@
 from _utils import *
 import pandas as pd
+import numpy as np
 
 MWh2GJ = 3.6
 TWh2PJ = 3.6
@@ -92,7 +93,6 @@ def get_ariadne_prices(n, region):
     return var
 
 def get_capacities_heat(n, region):
-    var = pd.Series()
 
     kwargs = {
         'groupby': n.statistics.groupers.get_name_bus_and_carrier,
@@ -134,29 +134,20 @@ def get_capacities_heat(n, region):
     var["Capacity|Heat|Resistive heater"] = \
         capacities_heat.filter(like="resistive heater").sum()
     
-
-    
     var["Capacity|Heat|Processes"] = \
-        capacities_heat.get([
-            "Fischer-Tropsch",
-            "H2 Electrolysis",
-            "H2 Fuel Cell",
-            "Sabatier",
-            "methanolisation"
-        ]) 
+        pd.Series({c: capacities_heat.get(c) for c in [
+                "Fischer-Tropsch",
+                "H2 Electrolysis",
+                "H2 Fuel Cell",
+                "Sabatier",
+                "methanolisation",
+        ]}).sum()
 
     # !!! Missing in the Ariadne database
 
-
-
-
-    # Capacity|Heat
     var["Capacity|Heat|Gas"] = \
         capacities_heat.filter(like="gas boiler").sum() \
         + capacities_heat.filter(like="gas CHP").sum()
-
-
-
     
     # var["Capacity|Heat|Geothermal"] =
     # ! Not implemented 
@@ -164,51 +155,43 @@ def get_capacities_heat(n, region):
     var["Capacity|Heat|Heat pump"] = \
         capacities_heat.filter(like="heat pump").sum()
 
-
     var["Capacity|Heat|Oil"] = \
         capacities_heat.filter(like="oil boiler").sum()
 
     var["Capacity|Heat|Storage Converter"] = \
         capacities_heat.filter(like="water tanks discharger").sum()
 
+    storage_capacities = n.statistics.optimal_capacity(
+        storage=True,
+        **kwargs,
+    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
+
     var["Capacity|Heat|Storage Reservoir"] = \
-        get_reservoir_capacity(
-            n.stores,
-            [
-                'residential rural water tanks',
-                'services rural water tanks',
-                'residential urban decentral water tanks',
-                'services urban decentral water tanks',
-                'urban central water tanks',
-            ],
-            region
-        )
+        storage_capacities.filter(like="water tanks").sum()
 
-
-
-    # !!! New technologies get added as we develop the model.
+    # Q: New technologies get added as we develop the model.
     # It would be helpful to have some double-checking, e.g.,
     # by asserting that every technology gets added,
     # or by computing the total independtly of the subtotals, 
     # and summing the subcategories to compare to the total
-
-    # n.links.carrier[n.links.bus1.str.contains("heat")].unique()
-    # ^ same for other buses
-
-    # TODO check for typos
+    # !: For now, check the totals by summing in two different ways
     
     var["Capacity|Heat"] = (
         var["Capacity|Heat|Solar thermal"] +
-        var["Capacity|Heat|Electricity"] +
+        var["Capacity|Heat|Resistive heater"] +
         var["Capacity|Heat|Biomass"] +
         var["Capacity|Heat|Oil"] +
         var["Capacity|Heat|Gas"] +
         var["Capacity|Heat|Processes"] +
-        var["Capacity|Heat|H2"] +
+        #var["Capacity|Heat|Hydrogen"] +
         var["Capacity|Heat|Heat pump"]
     )
-    # Q: Should heat capacity exclude storage converters (just like for elec)
-    
+
+    assert var["Capacity|Heat"] == \
+        capacities_heat[
+            # exclude storage converters (i.e., dischargers)
+            ~capacities_heat.index.str.contains("discharger")
+        ].sum()
 
     return var
 
@@ -255,10 +238,10 @@ def get_capacities_electricity(n, region):
 
 
     var["Capacity|Electricity|Coal|Hard Coal"] = \
-        capacities_electricity.get('coal')                                              
+        capacities_electricity.get('coal', 0)                                              
 
     var["Capacity|Electricity|Coal|Lignite"] = \
-        capacities_electricity.get('lignite')
+        capacities_electricity.get('lignite', 0)
     
     # var["Capacity|Electricity|Coal|Hard Coal|w/ CCS"] = 
     # var["Capacity|Electricity|Coal|Hard Coal|w/o CCS"] = 
@@ -308,7 +291,10 @@ def get_capacities_electricity(n, region):
     # ! Not implemented
 
     var["Capacity|Electricity|Hydro"] = \
-        capacities_electricity.get(['ror', 'hydro']).sum()
+        pd.Series({
+            c: capacities_electricity.get(c) 
+            for c in ["ror", "hydro"]
+        }).sum()
     # Q!: Not counting PHS here, because it is a true storage,
     # as opposed to hydro
      
@@ -392,7 +378,7 @@ def get_capacities_electricity(n, region):
         capacities_electricity.get("home battery discharger")
 
     var["Capacity|Electricity|Storage Converter|Vehicles"] = \
-        capacities_electricity.get("V2G")
+        capacities_electricity.get("V2G", 0)
     
     var["Capacity|Electricity|Storage Converter"] = \
         var[[
@@ -417,10 +403,13 @@ def get_capacities_electricity(n, region):
         storage_capacities.get("PHS")
     
     var["Capacity|Electricity|Storage Reservoir|Stationary Batteries"] = \
-        storage_capacities.get(["battery", "home battery"]).sum()
+        pd.Series({
+            c: storage_capacities.get(c) 
+            for c in ["battery", "home battery"]
+        }).sum()
     
     var["Capacity|Electricity|Storage Reservoir|Vehicles"] = \
-        storage_capacities.get("Li ion") 
+        storage_capacities.get("Li ion", 0) 
 
     var["Capacity|Electricity|Storage Reservoir"] = \
         var[[
@@ -460,7 +449,214 @@ def get_capacities_electricity(n, region):
     
     return var
 
-def get_ariadne_final_energy(n, region, industry_demand):
+
+def get_primary_energy(n, region):
+
+    var = pd.Series()
+
+        ## Primary Energy
+
+    var["Primary Energy|Oil|Heat"] = \
+        sum_link_input(
+            n,
+            n.links.carrier.filter(like="oil boiler").unique().tolist(),
+            region,
+        )
+
+    
+    var["Primary Energy|Oil|Electricity"] = \
+        sum_link_input(n, "oil", region)
+    
+    var["Primary Energy|Oil"] = (
+        var["Primary Energy|Oil|Electricity"] 
+        + var["Primary Energy|Oil|Heat"] 
+        + sum_link_input(
+            n,
+            [
+                "land transport oil",
+                "agriculture machinery oil",
+                "shipping oil",
+                "kerosene for aviation",
+                "naphtha for industry"
+            ],
+            region,
+        )
+    )   
+    # n.statistics.withdrawal(bus_carrier="oil")
+
+    var["Primary Energy|Gas|Heat"] = \
+        sum_link_input(
+            n,
+            n.links.carrier.filter(like="gas boiler").unique().tolist(),
+            region,
+        )
+    
+    var["Primary Energy|Gas|Electricity"] = \
+        sum_link_input(
+            n,
+            [
+                'CCGT',
+                'OCGT',
+                'urban central gas CHP',
+                'urban central gas CHP CC',
+            ],
+            region,
+        )
+    # Adding the CHPs to electricity, see also Capacity|Electricity|Gas
+    # Q: pypsa to iamc SPLITS the CHPS. Should we do the same?
+    
+    var["Primary Energy|Gas"] = (
+        var["Primary Energy|Gas|Heat"]
+        + var["Primary Energy|Gas|Electricity"]
+        + sum_link_input(
+            n,
+            [
+                'gas for industry', 
+                'gas for industry CC',
+            ],
+            region,
+        )
+    )
+
+    # ! There are CC sub-categories that could be used
+
+
+
+    var["Primary Energy|Coal|Electricity"] = \
+        sum_link_input(n, "coal", region)
+    
+    var["Primary Energy|Coal"] = (
+        var["Primary Energy|Coal|Electricity"] 
+        # + sum_load(n, "coal for industry", region)
+    )
+    # Q: It's strange to sum a load here, probably wrong (and 0 anyways)
+
+
+    var["Primary Energy|Fossil"] = (
+        var["Primary Energy|Coal"]
+        + var["Primary Energy|Gas"]
+        + var["Primary Energy|Oil"]
+    )
+
+    return var
+
+
+def get_secondary_energy(n, region):
+    var = pd.Series()
+
+    var["Secondary Energy|Electricity|Coal|Hard Coal"] = \
+        sum_link_output(n, "coal", region)
+    
+
+    var["Secondary Energy|Electricity|Coal"] = (
+        var["Secondary Energy|Electricity|Coal|Hard Coal"] 
+        + sum_link_output(n, "lignite", region)
+    )
+    
+    var["Secondary Energy|Electricity|Oil"] = \
+        sum_link_output(n, "oil", region)
+    
+    var["Secondary Energy|Electricity|Gas"] = \
+        sum_link_output(
+            n,
+            [
+                'CCGT',
+                'OCGT',
+                'urban central gas CHP',
+                'urban central gas CHP CC',
+            ],
+            region,
+        )
+
+    var["Secondary Energy|Electricity|Biomass"] = \
+        sum_link_output(
+            n,
+            [
+                'urban central solid biomass CHP',
+                'urban central solid biomass CHP CC',
+            ],
+            region,
+        )
+    # ! Biogas to gas should go into this category
+    # How to do that? (trace e.g., biogas to gas -> CCGT)
+    # If so: Should double counting with |Gas be avoided?
+
+    var["Secondary Energy|Electricity|Fossil"] = (
+        var["Secondary Energy|Electricity|Gas"]
+        + var["Secondary Energy|Electricity|Oil"]
+        + var["Secondary Energy|Electricity|Coal"]
+    )
+
+    var["Secondary Energy|Electricity|Hydro"] = (
+        sum_storage_unit_output(n, ["PHS", "hydro"], region)
+        + sum_generator_output(n, "ror", region)
+    )
+    # Q: PHS produces negative electricity, because of storage losses
+    # Q: Should it be considered here??
+    var["Secondary Energy|Heat|Gas"] = (
+        sum_link_output(
+            n,
+            n.links.carrier.filter(like="oil boiler").unique().tolist(),
+            region,
+        ) 
+        + sum_link_output(
+            n,
+            [
+                'urban central gas CHP',
+                'urban central gas CHP CC',
+            ],
+            region,
+            port="p2"
+        ) 
+    )
+    # Q: Make sure to provide a comprehensive list of boilers
+
+
+    var["Secondary Energy|Hydrogen|Electricity"] = \
+        sum_link_output(n, 'H2 Electrolysis', region)
+    # Q: correct units?
+    
+    var["Secondary Energy|Hydrogen|Gas"] = \
+        sum_link_output(n, ["SMR", "SMR CC"], region)
+    # Q: Why does SMR not consume heat or electricity?
+
+
+    var["Secondary Energy|Liquids|Hydrogen"] = \
+        sum_link_output(
+            n,
+            [
+                "methanolisation",
+                "Fischer-Tropsch",
+            ],
+            region,
+        )
+    
+    var["Secondary Energy|Gases|Hydrogen"] = \
+        sum_link_output(
+            n,
+            [
+                "Sabatier",
+            ],
+            region,
+        )
+    
+    var["Secondary Energy|Gases|Biomass"] = \
+        sum_link_output(
+            n,
+            [
+                "biogas to gas",
+                "biogas to gas CC",
+            ],
+            region,
+        )
+    # Q: biogas to gas is an EU Bus and gets filtered out by "region"
+    # Fixed by biomass_spatial: True
+
+
+
+    return var
+
+def get_final_energy(n, region, industry_demand):
     var = {}
 
     # industry
@@ -638,15 +834,191 @@ def get_ariadne_final_energy(n, region, industry_demand):
     )
     return var
 
-# missing final energy
-# Final Energy
-# Final Energy incl Non-Energy Use incl Bunkers
-# Final Energy|Electricity
-# Final Energy|Solids
-# Final Energy|Solids|Biomass
-# Final Energy|Gases
-# Final Energy|Liquids
-# Final Energy|Heat
-# Final Energy|Solar
-# Final Energy|Hydrogen
-# Final Energy|Geothermal
+
+
+# convert EURXXXX to EUR2020
+def get_prices(n, region):
+    var = {}
+    groupby = n.statistics.groupers.get_name_bus_and_carrier
+
+    nodal_flows = n.statistics.withdrawal(
+        bus_carrier="low voltage", 
+        groupby=groupby,
+        aggregate_time=False,
+    ).filter(
+        like=region,
+        axis=0,
+    ).query( # Take care to exclude everything else at this bus
+        "not carrier.str.contains('agriculture')"
+         "& not carrier.str.contains('industry')"
+         "& not carrier.str.contains('urban central')"
+    ).groupby("bus").sum().T 
+
+    nodal_prices = n.buses_t.marginal_price[nodal_flows.columns] 
+
+    # electricity price at the final level in the residential sector. Prices should include the effect of carbon prices.
+    var["Price|Final Energy|Residential|Electricity"] = \
+        nodal_flows.mul(
+            nodal_prices
+        ).sum().div(
+            nodal_flows.sum()
+        ).div(MWh2GJ) # TODO should this be divided by MWh2GJ ???
+
+    return var
+
+
+def get_emissions(n, region):
+    var = pd.Series()
+
+        
+    ## Emissions
+
+    var["Carbon Sequestration|BECCS"] = \
+        sum_co2(
+            n,
+            [
+                "biogas to gas",
+                "solid biomass for industry CC",
+                "biogas to gas CC",
+                "urban central solid biomass CHP CC",
+            ],
+            region,
+        )     
+
+    var["Carbon Sequestration|DACCS"] = \
+        sum_co2(n, "DAC", region)
+
+
+    var["Emissions|CO2"] = \
+        get_total_co2(n, region) 
+
+    # ! LULUCF should also be subtracted, we get from REMIND, 
+    # TODO how to add it here?
+    
+    # Make sure these values are about right
+    # var["Emissions|CO2|Energy and Industrial Processes"] = \  
+    # var["Emissions|CO2|Industrial Processes"] = \ 
+    # var["Emissions|CO2|Energy"] = \   
+    # var["Emissions|CO2|Energy incl Bunkers"] = \  
+    # var["Emissions|CO2|Energy|Demand"] = \    
+    # var["Emissions|CO2|Energy incl Bunkers|Demand"] = \
+       
+    # var["Emissions|CO2|Energy|Demand|Industry"] = \
+    #     sum_co2(
+    #         n,
+    #         "naphtha for industry",
+    #         region,
+    #     )
+    # Q: these are emissions through burning of plastic waste!!! 
+
+
+    var["Emissions|CO2|Energy|Demand|Residential and Commercial"] = \
+        sum_co2(
+            n,
+            [
+                *n.links.carrier.filter(like="oil boiler").unique(),
+                *n.links.carrier.filter(like="gas boiler").unique(),
+                # matches "gas CHP CC" as well
+                *n.links.carrier.filter(like="gas CHP").unique(),
+            ],
+            region
+        )
+    # Q: are the gas CHPs for Residential and Commercial demand??
+    # Q: Also residential elec demand!
+
+    var["Emissions|CO2|Energy|Demand|Transportation"] = \
+        sum_co2(n, "land transport oil", region)
+  
+    var["Emissions|CO2|Energy|Demand|Bunkers|Aviation"] = \
+        sum_co2(n, "kerosene for aviation", region)
+    
+    var["Emissions|CO2|Energy|Demand|Bunkers|Navigation"] = \
+        sum_co2(n, ["shipping oil", "shipping methanol"], region)
+    
+    var["Emissions|CO2|Energy|Demand|Bunkers"] = \
+        var["Emissions|CO2|Energy|Demand|Bunkers|Aviation"] + \
+        var["Emissions|CO2|Energy|Demand|Bunkers|Navigation"]
+    
+    var["Emissions|CO2|Energy|Demand|Other Sector"] = \
+        sum_co2(n, "agriculture machinery oil", region)
+    
+    
+    var["Emissions|Gross Fossil CO2|Energy|Supply|Electricity"] = \
+        sum_co2(n,
+            [
+                "OCGT",
+                "CCGT",
+                "coal",
+                "lignite",
+                "oil",
+                "urban central gas CHP",
+                "urban central gas CHP CC",
+            ], 
+            region,
+        )
+    
+    var["Emissions|CO2|Energy|Supply|Electricity"] = (
+        var["Emissions|Gross Fossil CO2|Energy|Supply|Electricity"]
+        + sum_co2(n, "urban central solid biomass CHP CC", region)
+    )
+
+    # Q: Where should I add the CHPs?
+    # ! According to Ariadne Database in the Electricity
+
+    var["Emissions|CO2|Energy|Supply|Heat"] = \
+        sum_co2(n,
+            [
+                *n.links.carrier.filter(like="oil boiler").unique(),
+                *n.links.carrier.filter(like="gas boiler").unique(),
+            ], 
+            region,
+        )
+
+    var["Emissions|CO2|Energy|Supply|Electricity and Heat"] = \
+        var["Emissions|CO2|Energy|Supply|Heat"] + \
+        var["Emissions|CO2|Energy|Supply|Electricity"]
+
+    # var["Emissions|CO2|Supply|Non-Renewable Waste"] = \   
+    var["Emissions|CO2|Energy|Supply|Hydrogen"] = \
+        sum_co2(n,
+            [
+                "SMR",
+                "SMR CC",
+            ], 
+            region,
+        )
+    
+    #var["Emissions|CO2|Energy|Supply|Gases"] = \
+    var["Emissions|CO2|Supply|Non-Renewable Waste"] = \
+        sum_co2(n, "naphtha for industry", region)
+    # Q: These are plastic combustino emissions, not Gases. 
+    # What then are gases?
+
+    var["Emissions|CO2|Energy|Supply|Liquids"] = \
+        sum_co2(
+            n,
+            [
+                "agriculture machinery oil",
+                "kerosene for aviation",
+                "shipping oil",
+                "shipping methanol",
+                "land transport oil"
+            ],
+            region
+        )
+    # Q: Some things show up on Demand as well as Supply side
+
+    var["Emissions|CO2|Energy|Supply|Liquids and Gases"] = \
+        var["Emissions|CO2|Energy|Supply|Liquids"]
+        # var["Emissions|CO2|Energy|Supply|Gases"] + \
+    
+    var["Emissions|CO2|Energy|Supply"] = \
+        var["Emissions|CO2|Energy|Supply|Liquids and Gases"] + \
+        var["Emissions|CO2|Energy|Supply|Hydrogen"] + \
+        var["Emissions|CO2|Energy|Supply|Electricity and Heat"]
+    # var["Emissions|CO2|Energy|Supply|Other Sector"] = \   
+    # var["Emissions|CO2|Energy|Supply|Solids"] = \ 
+    # TODO Add (negative) BECCS emissions! (Use "co2 stored" and "co2 sequestered")
+
+
+    return var 
