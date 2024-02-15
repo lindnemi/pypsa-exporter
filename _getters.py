@@ -1,6 +1,6 @@
 from _utils import *
 import pandas as pd
-import numpy as np
+from numpy import isclose
 
 MWh2GJ = 3.6
 TWh2PJ = 3.6
@@ -92,113 +92,6 @@ def get_ariadne_prices(n, region):
 
     return var
 
-def get_capacities_heat(n, region):
-
-    kwargs = {
-        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
-        'nice_names': False,
-    }
-
-    var = pd.Series()
-
-    capacities_heat = n.statistics.optimal_capacity(
-        bus_carrier=[
-            "urban central heat",
-            "urban decentral heat",
-            "rural heat"
-        ],
-        **kwargs,
-    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
-
-
-    var["Capacity|Heat|Solar thermal"] = \
-        capacities_heat.filter(like="solar thermal").sum()
-
-    # !!! Missing in the Ariadne database
-    #  We could be much more detailed for the heat sector (as for electricity)
-    # if desired by Ariadne
-    #
-    var["Capacity|Heat|Biomass|w/ CCS"] = \
-        capacities_heat.get('urban central solid biomass CHP CC') 
-    var["Capacity|Heat|Biomass|w/o CCS"] = \
-        capacities_heat.get('urban central solid biomass CHP') \
-        +  capacities_heat.filter(like="biomass boiler").sum()
-    
-    var["Capacity|Heat|Biomass"] = \
-        var["Capacity|Heat|Biomass|w/ CCS"] + \
-        var["Capacity|Heat|Biomass|w/o CCS"]
-
-    assert var["Capacity|Heat|Biomass"] == \
-        capacities_heat.filter(like="biomass").sum()
-    
-    var["Capacity|Heat|Resistive heater"] = \
-        capacities_heat.filter(like="resistive heater").sum()
-    
-    var["Capacity|Heat|Processes"] = \
-        pd.Series({c: capacities_heat.get(c) for c in [
-                "Fischer-Tropsch",
-                "H2 Electrolysis",
-                "H2 Fuel Cell",
-                "Sabatier",
-                "methanolisation",
-        ]}).sum()
-
-    # !!! Missing in the Ariadne database
-
-    var["Capacity|Heat|Gas"] = \
-        capacities_heat.filter(like="gas boiler").sum() \
-        + capacities_heat.filter(like="gas CHP").sum()
-    
-    # var["Capacity|Heat|Geothermal"] =
-    # ! Not implemented 
-
-    var["Capacity|Heat|Heat pump"] = \
-        capacities_heat.filter(like="heat pump").sum()
-
-    var["Capacity|Heat|Oil"] = \
-        capacities_heat.filter(like="oil boiler").sum()
-
-    var["Capacity|Heat|Storage Converter"] = \
-        capacities_heat.filter(like="water tanks discharger").sum()
-
-    storage_capacities = n.statistics.optimal_capacity(
-        storage=True,
-        **kwargs,
-    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
-
-    var["Capacity|Heat|Storage Reservoir"] = \
-        storage_capacities.filter(like="water tanks").sum()
-
-    # Q: New technologies get added as we develop the model.
-    # It would be helpful to have some double-checking, e.g.,
-    # by asserting that every technology gets added,
-    # or by computing the total independtly of the subtotals, 
-    # and summing the subcategories to compare to the total
-    # !: For now, check the totals by summing in two different ways
-    
-    var["Capacity|Heat"] = (
-        var["Capacity|Heat|Solar thermal"] +
-        var["Capacity|Heat|Resistive heater"] +
-        var["Capacity|Heat|Biomass"] +
-        var["Capacity|Heat|Oil"] +
-        var["Capacity|Heat|Gas"] +
-        var["Capacity|Heat|Processes"] +
-        #var["Capacity|Heat|Hydrogen"] +
-        var["Capacity|Heat|Heat pump"]
-    )
-
-    assert var["Capacity|Heat"] == \
-        capacities_heat[
-            # exclude storage converters (i.e., dischargers)
-            ~capacities_heat.index.str.contains("discharger")
-        ].sum()
-
-    return var
-
-
-def get_capacities_other(n, region):
-    var = pd.Series()
-    return var
 
 def get_capacities_electricity(n, region):
 
@@ -442,13 +335,195 @@ def get_capacities_electricity(n, region):
             "V2G",
         ] if col in capacities_electricity.index
     ]
-    assert abs(
-        var["Capacity|Electricity"]
-        - capacities_electricity.drop(_drop_idx).sum()
-    ) < 10e-10
+    assert isclose(
+        var["Capacity|Electricity"],
+        capacities_electricity.drop(_drop_idx).sum(),
+    )
     
     return var
 
+def get_capacities_heat(n, region):
+
+    kwargs = {
+        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+        'nice_names': False,
+    }
+
+    var = pd.Series()
+
+    capacities_heat = n.statistics.optimal_capacity(
+        bus_carrier=[
+            "urban central heat",
+            "urban decentral heat",
+            "rural heat"
+        ],
+        **kwargs,
+    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
+
+
+    var["Capacity|Heat|Solar thermal"] = \
+        capacities_heat.filter(like="solar thermal").sum()
+
+    # !!! Missing in the Ariadne database
+    #  We could be much more detailed for the heat sector (as for electricity)
+    # if desired by Ariadne
+    #
+    var["Capacity|Heat|Biomass|w/ CCS"] = \
+        capacities_heat.get('urban central solid biomass CHP CC') 
+    var["Capacity|Heat|Biomass|w/o CCS"] = \
+        capacities_heat.get('urban central solid biomass CHP') \
+        +  capacities_heat.filter(like="biomass boiler").sum()
+    
+    var["Capacity|Heat|Biomass"] = \
+        var["Capacity|Heat|Biomass|w/ CCS"] + \
+        var["Capacity|Heat|Biomass|w/o CCS"]
+
+    assert var["Capacity|Heat|Biomass"] == \
+        capacities_heat.filter(like="biomass").sum()
+    
+    var["Capacity|Heat|Resistive heater"] = \
+        capacities_heat.filter(like="resistive heater").sum()
+    
+    var["Capacity|Heat|Processes"] = \
+        pd.Series({c: capacities_heat.get(c) for c in [
+                "Fischer-Tropsch",
+                "H2 Electrolysis",
+                "H2 Fuel Cell",
+                "Sabatier",
+                "methanolisation",
+        ]}).sum()
+
+    # !!! Missing in the Ariadne database
+
+    var["Capacity|Heat|Gas"] = \
+        capacities_heat.filter(like="gas boiler").sum() \
+        + capacities_heat.filter(like="gas CHP").sum()
+    
+    # var["Capacity|Heat|Geothermal"] =
+    # ! Not implemented 
+
+    var["Capacity|Heat|Heat pump"] = \
+        capacities_heat.filter(like="heat pump").sum()
+
+    var["Capacity|Heat|Oil"] = \
+        capacities_heat.filter(like="oil boiler").sum()
+
+    var["Capacity|Heat|Storage Converter"] = \
+        capacities_heat.filter(like="water tanks discharger").sum()
+
+    storage_capacities = n.statistics.optimal_capacity(
+        storage=True,
+        **kwargs,
+    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
+
+    var["Capacity|Heat|Storage Reservoir"] = \
+        storage_capacities.filter(like="water tanks").sum()
+
+    # Q: New technologies get added as we develop the model.
+    # It would be helpful to have some double-checking, e.g.,
+    # by asserting that every technology gets added,
+    # or by computing the total independtly of the subtotals, 
+    # and summing the subcategories to compare to the total
+    # !: For now, check the totals by summing in two different ways
+    
+    var["Capacity|Heat"] = (
+        var["Capacity|Heat|Solar thermal"] +
+        var["Capacity|Heat|Resistive heater"] +
+        var["Capacity|Heat|Biomass"] +
+        var["Capacity|Heat|Oil"] +
+        var["Capacity|Heat|Gas"] +
+        var["Capacity|Heat|Processes"] +
+        #var["Capacity|Heat|Hydrogen"] +
+        var["Capacity|Heat|Heat pump"]
+    )
+
+    assert var["Capacity|Heat"] == \
+        capacities_heat[
+            # exclude storage converters (i.e., dischargers)
+            ~capacities_heat.index.str.contains("discharger")
+        ].sum()
+
+    return var
+
+
+def get_capacities_other(n, region):
+    kwargs = {
+        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+        'nice_names': False,
+    }
+
+    var = pd.Series()
+
+    capacities_h2 = n.statistics.optimal_capacity(
+        bus_carrier="H2",
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby("carrier").sum().multiply(MW2GW)
+
+    var["Capacity|Hydrogen|Gas|w/ CCS"] = \
+        capacities_h2.get("SMR CC")
+    
+    var["Capacity|Hydrogen|Gas|w/o CCS"] = \
+        capacities_h2.get("SMR")
+    
+    var["Capacity|Hydrogen|Gas"] = \
+        capacities_h2.filter(like="SMR").sum()
+    
+    assert var["Capacity|Hydrogen|Gas"] == \
+        var["Capacity|Hydrogen|Gas|w/ CCS"] + \
+        var["Capacity|Hydrogen|Gas|w/o CCS"] 
+    
+    var["Capacity|Hydrogen|Electricity"] = \
+        capacities_h2.get("H2 Electrolysis")
+
+    var["Capacity|Hydrogen"] = (
+        var["Capacity|Hydrogen|Electricity"]
+        + var["Capacity|Hydrogen|Gas"]
+    )
+    assert isclose(
+        var["Capacity|Hydrogen"],
+        capacities_h2.reindex([
+            "H2 Electrolysis",
+            "SMR",
+            "SMR CC",
+        ]).sum(), # if technology not build, reindex returns NaN
+    )
+
+    storage_capacities = n.statistics.optimal_capacity(
+        storage=True,
+        **kwargs,
+    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
+
+    var["Capacity|Hydrogen|Reservoir"] = \
+        storage_capacities.get("H2")
+
+
+
+    capacities_gas = n.statistics.optimal_capacity(
+        bus_carrier="gas",
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby("carrier").sum().multiply(MW2GW)
+
+    var["Capacity|Gases|Hydrogen"] = \
+        capacities_gas.get("Sabatier", 0)
+    
+    var["Capacity|Gases|Biomass"] = \
+        capacities_gas.reindex([
+            "biogas to gas",
+            "biogas to gas CC",
+        ]).sum()
+
+    var["Capacity|Gases"] = (
+        var["Capacity|Gases|Hydrogen"] +
+        var["Capacity|Gases|Biomass"] 
+    )
+
+    assert var["Capacity|Gases"] == capacities_gas.sum()
+
+    return var 
 
 def get_primary_energy(n, region):
 
