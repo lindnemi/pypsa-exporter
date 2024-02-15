@@ -92,8 +92,8 @@ def get_ariadne_var(n, industry_demand, region):
         get_capacities_other(n,region),
         get_primary_energy(n, region),
         get_secondary_energy(n, region),
-        get_final_energy(n, industry_demand, region),
-        get_prices(n,region), 
+        #get_final_energy(n, region, industry_demand),
+        #get_prices(n,region), 
     ])
 
 
@@ -177,6 +177,7 @@ n30 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{20
 n40 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2040}.nc")
 
 n50 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2050}.nc")
+
 
 region="DE"
 # # %% OLD
