@@ -11,6 +11,14 @@ MWh2PJ = 3.6e-6
 
 # %% More abstractions
 
+def get_CHP_elec_fraction(n, carrier, region):
+    assert "CHP" in carrier
+
+    elec_output = sum_link_output(n, carrier, region)
+    heat_output = sum_link_output(n, carrier, region, port="p2")
+
+    return elec_output / (elec_output + heat_output)
+
 def _get_t_sum(df, df_t, carrier, region, snapshot_weightings, port):
     if type(carrier) == list:
         return sum(
