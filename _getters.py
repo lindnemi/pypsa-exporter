@@ -481,7 +481,7 @@ def get_primary_energy(n, region):
         like=region
     ).groupby(
         "carrier"
-    ).sum().multiply(oil_fossil_fraction).multiply(MW2GW)
+    ).sum().multiply(oil_fossil_fraction).multiply(MWh2PJ)
 
         ## Primary Energy
 
@@ -522,7 +522,7 @@ def get_primary_energy(n, region):
         like=region
     ).groupby(
         "carrier"
-    ).sum().multiply(gas_fossil_fraction).multiply(MW2GW)
+    ).sum().multiply(gas_fossil_fraction).multiply(MWh2PJ)
 
     var["Primary Energy|Gas|Heat"] = \
         gas_usage.filter(like="gas boiler").sum()
