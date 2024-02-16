@@ -578,7 +578,7 @@ def get_primary_energy(n, region):
     var["Primary Energy|Oil"] = (
         var["Primary Energy|Oil|Electricity"] 
         + var["Primary Energy|Oil|Heat"] 
-        + oil_usage.get(
+        + oil_usage.reindex(
             [
                 "land transport oil",
                 "agriculture machinery oil",
