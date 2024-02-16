@@ -6,7 +6,6 @@ MWh2GJ = 3.6
 TWh2PJ = 3.6
 MWh2PJ = 3.6e-6
 
-
 #n.statistics.withdrawal(bus_carrier="land transport oil", groupby=groupby, aggregate_time=False).filter(like="DE1 0",axis=0)
 
 # first look at final energy then get variables from presentation
@@ -523,30 +522,63 @@ def get_capacities_other(n, region):
 
     assert var["Capacity|Gases"] == capacities_gas.sum()
 
+
+    capacities_liquids = n.statistics.optimal_capacity(
+        bus_carrier=["oil", "methanol"],
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby("carrier").sum().multiply(MW2GW)
+
+    var["Capacity|Liquids|Hydrogen"] = \
+        capacities_liquids.get("Fischer-Tropsch") + \
+        capacities_liquids.get("methanolisation", 0)
+    
+    var["Capacity|Liquids"] = var["Capacity|Liquids|Hydrogen"]
+
+    assert isclose(
+        var["Capacity|Liquids"], capacities_liquids.sum(),
+    )
+
     return var 
 
 def get_primary_energy(n, region):
+    kwargs = {
+        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+        'nice_names': False,
+    }
 
     var = pd.Series()
+
+    EU_oil_supply = n.statistics.supply(bus_carrier="oil")
+    oil_fossil_fraction = (
+        EU_oil_supply.get("Generator").get("oil")
+        / EU_oil_supply.sum()
+    )
+    
+    oil_usage = n.statistics.withdrawal(
+        bus_carrier="oil", 
+        **kwargs
+    ).filter(
+        like=region
+    ).groupby(
+        "carrier"
+    ).sum().multiply(oil_fossil_fraction).multiply(MW2GW)
 
         ## Primary Energy
 
     var["Primary Energy|Oil|Heat"] = \
-        sum_link_input(
-            n,
-            n.links.carrier.filter(like="oil boiler").unique().tolist(),
-            region,
-        )
+        oil_usage.filter(like="oil boiler").sum()
 
     
     var["Primary Energy|Oil|Electricity"] = \
-        sum_link_input(n, "oil", region)
+        oil_usage.get("oil")
+    # This will get the oil store as well, but it should be 0
     
     var["Primary Energy|Oil"] = (
         var["Primary Energy|Oil|Electricity"] 
         + var["Primary Energy|Oil|Heat"] 
-        + sum_link_input(
-            n,
+        + oil_usage.get(
             [
                 "land transport oil",
                 "agriculture machinery oil",
@@ -554,31 +586,40 @@ def get_primary_energy(n, region):
                 "kerosene for aviation",
                 "naphtha for industry"
             ],
-            region,
-        )
+        ).sum()
     )   
-    # n.statistics.withdrawal(bus_carrier="oil")
+    assert isclose(var["Primary Energy|Oil"], oil_usage.sum())
+
+    EU_gas_supply = n.statistics.supply(bus_carrier="gas")
+    gas_fossil_fraction = (
+        EU_gas_supply.get("Generator").get("gas")
+        / EU_gas_supply.sum()
+    )
+    # Eventhough biogas gets routed through the EU gas bus,
+    # it should be counted separately as Primary Energy|Biomass
+    gas_usage = n.statistics.withdrawal(
+        bus_carrier="gas", 
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby(
+        "carrier"
+    ).sum().multiply(gas_fossil_fraction).multiply(MW2GW)
 
     var["Primary Energy|Gas|Heat"] = \
-        sum_link_input(
-            n,
-            n.links.carrier.filter(like="gas boiler").unique().tolist(),
-            region,
-        )
+        gas_usage.filter(like="gas boiler").sum()
     
     var["Primary Energy|Gas|Electricity"] = \
-        sum_link_input(
-            n,
+        gas_usage.reindex(
             [
                 'CCGT',
                 'OCGT',
                 'urban central gas CHP',
                 'urban central gas CHP CC',
             ],
-            region,
-        )
+        ).sum()
     # Adding the CHPs to electricity, see also Capacity|Electricity|Gas
-    # Q: pypsa to iamc SPLITS the CHPS. Should we do the same?
+    # Q: pypsa to iamc SPLITS the CHPS. TODO Should we do the same?
     
     var["Primary Energy|Gas"] = (
         var["Primary Energy|Gas|Heat"]
