@@ -709,6 +709,14 @@ def get_primary_energy(n, region):
     var["Primary Energy|Wind"] = \
         renewable_electricity.filter(like="wind").sum()
 
+    assert isclose(
+        renewable_electricity.sum(),
+        (
+            var["Primary Energy|Hydro"] 
+            + var["Primary Energy|Solar"] 
+            + var["Primary Energy|Wind"]
+        )
+    )
     # Primary Energy|Other
     # Not implemented
 
