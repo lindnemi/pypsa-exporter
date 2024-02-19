@@ -124,7 +124,7 @@ def get_capacities_electricity(n, region):
     # ! Not implemented
 
     var["Capacity|Electricity|Nuclear"] = \
-        capacities_electricity.get("nuclear")
+        capacities_electricity.get("nuclear", 0)
 
     # var["Capacity|Electricity|Ocean"] = 
     # ! Not implemented
@@ -275,11 +275,15 @@ def get_capacities_heat(n, region):
             "rural heat"
         ],
         **kwargs,
-    ).filter(like=region).groupby("carrier").sum().multiply(MW2GW)
+    ).filter(like=region).groupby("carrier").sum().drop(
+        ["urban central heat vent"]
+    ).multiply(MW2GW)
 
 
     var["Capacity|Heat|Solar thermal"] = \
         capacities_heat.filter(like="solar thermal").sum()
+    # TODO Ariadne DB distinguishes between Heat and Decentral Heat!
+    # We should probably change all capacities here?!
 
     # !!! Missing in the Ariadne database
     #  We could be much more detailed for the heat sector (as for electricity)
@@ -295,8 +299,10 @@ def get_capacities_heat(n, region):
         var["Capacity|Heat|Biomass|w/ CCS"] + \
         var["Capacity|Heat|Biomass|w/o CCS"]
 
-    assert var["Capacity|Heat|Biomass"] == \
+    assert isclose(
+        var["Capacity|Heat|Biomass"],
         capacities_heat.filter(like="biomass").sum()
+    )
     
     var["Capacity|Heat|Resistive heater"] = \
         capacities_heat.filter(like="resistive heater").sum()
@@ -354,11 +360,13 @@ def get_capacities_heat(n, region):
         var["Capacity|Heat|Heat pump"]
     )
 
-    assert var["Capacity|Heat"] == \
+    assert isclose(
+        var["Capacity|Heat"],
         capacities_heat[
             # exclude storage converters (i.e., dischargers)
             ~capacities_heat.index.str.contains("discharger")
         ].sum()
+    )
 
     return var
 
@@ -392,7 +400,7 @@ def get_capacities_other(n, region):
         var["Capacity|Hydrogen|Gas|w/o CCS"] 
     
     var["Capacity|Hydrogen|Electricity"] = \
-        capacities_h2.get("H2 Electrolysis")
+        capacities_h2.get("H2 Electrolysis", 0)
 
     var["Capacity|Hydrogen"] = (
         var["Capacity|Hydrogen|Electricity"]
@@ -422,7 +430,11 @@ def get_capacities_other(n, region):
         **kwargs,
     ).filter(
         like=region
-    ).groupby("carrier").sum().multiply(MW2GW)
+    ).groupby("carrier").sum().drop(
+        # Drop Import (Generator, gas), Storage (Store, gas), 
+        # and Transmission capacities
+        ["gas", "gas pipeline", "gas pipeline new"]
+    ).multiply(MW2GW)
 
     var["Capacity|Gases|Hydrogen"] = \
         capacities_gas.get("Sabatier", 0)
@@ -438,7 +450,10 @@ def get_capacities_other(n, region):
         var["Capacity|Gases|Biomass"] 
     )
 
-    assert var["Capacity|Gases"] == capacities_gas.sum()
+    assert isclose(
+        var["Capacity|Gases"],
+        capacities_gas.sum(),
+    )
 
 
     capacities_liquids = n.statistics.optimal_capacity(
@@ -508,10 +523,24 @@ def get_primary_energy(n, region):
     )   
     assert isclose(var["Primary Energy|Oil"], oil_usage.sum())
 
-    EU_gas_supply = n.statistics.supply(bus_carrier="gas")
+    # !! TODO since gas is now regionally resolved we 
+    # compute the reginoal gas supply 
+    regional_gas_supply = n.statistics.supply(
+        bus_carrier="gas", 
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby(
+        ["component", "carrier"]
+    ).sum().drop([
+        "Store",
+        ("Link", "gas pipeline"),
+        ("Link", "gas pipeline new"),
+    ])
+
     gas_fossil_fraction = (
-        EU_gas_supply.get("Generator").get("gas")
-        / EU_gas_supply.sum()
+        regional_gas_supply.get("Generator").get("gas")
+        / regional_gas_supply.sum()
     )
     # Eventhough biogas gets routed through the EU gas bus,
     # it should be counted separately as Primary Energy|Biomass
@@ -521,6 +550,12 @@ def get_primary_energy(n, region):
     ).filter(
         like=region
     ).groupby(
+        ["component", "carrier"],
+    ).sum().drop([
+        "Store",
+        ("Link", "gas pipeline"),
+        ("Link", "gas pipeline new"),
+    ]).groupby(
         "carrier"
     ).sum().multiply(gas_fossil_fraction).multiply(MWh2PJ)
 
@@ -538,39 +573,144 @@ def get_primary_energy(n, region):
         ).sum()
     # Adding the CHPs to electricity, see also Capacity|Electricity|Gas
     # Q: pypsa to iamc SPLITS the CHPS. TODO Should we do the same?
+
+    var["Primary Energy|Gas|Hydrogen"] = \
+        gas_usage.filter(like="SMR").sum()
     
     var["Primary Energy|Gas"] = (
         var["Primary Energy|Gas|Heat"]
         + var["Primary Energy|Gas|Electricity"]
-        + sum_link_input(
-            n,
-            [
-                'gas for industry', 
-                'gas for industry CC',
-            ],
-            region,
-        )
+        + var["Primary Energy|Gas|Hydrogen"] 
+        + gas_usage.filter(like="gas for industry").sum()
     )
 
+    assert isclose(
+        var["Primary Energy|Gas"],
+        gas_usage.sum(),
+    )
     # ! There are CC sub-categories that could be used
 
+    coal_usage = n.statistics.withdrawal(
+        bus_carrier=["lignite", "coal"], 
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby(
+        "carrier"
+    ).sum().multiply(MWh2PJ)
 
+    var["Primary Energy|Coal|Hard Coal"] = \
+        coal_usage.get("coal", 0)
 
+    var["Primary Energy|Coal|Lignite"] = \
+        coal_usage.get("lignite", 0)
+    
     var["Primary Energy|Coal|Electricity"] = \
-        sum_link_input(n, "coal", region)
+        var["Primary Energy|Coal|Hard Coal"] + \
+        var["Primary Energy|Coal|Lignite"]
     
     var["Primary Energy|Coal"] = (
         var["Primary Energy|Coal|Electricity"] 
-        # + sum_load(n, "coal for industry", region)
+        + coal_usage.get("coal for industry", 0)
     )
-    # Q: It's strange to sum a load here, probably wrong (and 0 anyways)
-
+    
+    assert isclose(var["Primary Energy|Coal"], coal_usage.sum())
 
     var["Primary Energy|Fossil"] = (
         var["Primary Energy|Coal"]
         + var["Primary Energy|Gas"]
         + var["Primary Energy|Oil"]
     )
+
+    biomass_usage = n.statistics.withdrawal(
+        bus_carrier=["solid biomass", "biogas"], 
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby(
+        "carrier"
+    ).sum().multiply(MWh2PJ)
+
+    
+    var["Primary Energy|Biomass|w/ CCS"] = \
+        biomass_usage[biomass_usage.index.str.contains("CC")].sum()
+    
+    var["Primary Energy|Biomass|w/o CCS"] = \
+        biomass_usage[~biomass_usage.index.str.contains("CC")].sum()
+    
+    var["Primary Energy|Biomass|Electricity"] = \
+        biomass_usage.filter(like="CHP").sum()
+    # !!! ADDING CHP ONLY TO ELECTRICITY INSTEAD OF SPLITTING, CORRECT?
+    var["Primary Energy|Biomass|Heat"] = \
+        biomass_usage.filter(like="boiler").sum()
+    
+    # var["Primary Energy|Biomass|Gases"] = \
+    # Gases are only E-Fueld in AriadneDB
+    # Not possibly in an easy way because biogas to gas goes to the
+    # gas bus, where it mixes with fossil imports
+    
+    var["Primary Energy|Biomass"] = (
+        var["Primary Energy|Biomass|Electricity"]
+        + var["Primary Energy|Biomass|Heat"]
+        + biomass_usage.filter(like="solid biomass for industry").sum()
+        + biomass_usage.filter(like="biogas to gas").sum()
+    )
+    
+        
+    assert isclose(
+        var["Primary Energy|Biomass"],
+        biomass_usage.sum(),
+    )
+
+    var["Primary Energy|Nuclear"] = \
+        n.statistics.withdrawal(
+            bus_carrier=["uranium"], 
+            **kwargs,
+        ).filter(
+            like=region
+        ).groupby(
+            "carrier"
+        ).sum().multiply(MWh2PJ).get("nuclear", 0)
+
+
+    # ! This should basically be equivalent to secondary energy
+    renewable_electricity = n.statistics.supply(
+        bus_carrier=["AC", "low voltage"],
+        **kwargs,
+    ).drop([
+        # Assuming renewables are only generators and StorageUnits 
+        "Link", "Line"
+    ]).filter(like=region).groupby("carrier").sum().multiply(MWh2PJ)
+
+    
+    solar_thermal_heat = n.statistics.supply(
+        bus_carrier=[
+            "urban decentral heat", 
+            "urban central heat", 
+            "rural heat",
+        ],
+        **kwargs,
+    ).filter(
+        like=region
+    ).groupby("carrier").sum().filter(
+        like="solar thermal"
+    ).multiply(MWh2PJ).sum()
+
+    var["Primary Energy|Hydro"] = \
+        renewable_electricity.get([
+            "ror", "PHS", "hydro",
+        ]).sum()
+    
+    var["Primary Energy|Solar"] = \
+        renewable_electricity.filter(like="solar").sum() + \
+        solar_thermal_heat
+
+        
+    var["Primary Energy|Wind"] = \
+        renewable_electricity.filter(like="wind").sum()
+
+    # Primary Energy|Other
+    # Not implemented
 
     return var
 

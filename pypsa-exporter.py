@@ -11,10 +11,10 @@ import pandas as pd
 from itertools import product
 from functools import reduce
 import os
-import snakemake as sm
 from pathlib import Path
 from _utils import *
 from _getters import *
+import yaml
 
 
 # Defining global varibales
@@ -28,22 +28,13 @@ t2Mt = 1e-6
 
 project_dir = "/home/micha/git/pypsa-ariadne/"
 snakefile = project_dir + "/workflow/Snakefile"
-
+configfile = project_dir + "results/240216-365H-higherelectrolysis/config.yaml"
 os.chdir(project_dir)
 
-workflow = sm.Workflow(snakefile, overwrite_configfiles=[], rerun_triggers=[])
-#%%
+with open(configfile) as f:
+    config = yaml.load(f, Loader=yaml.FullLoader)
 
-# Raises an exception but sucessfully reads the config
-try:
-    workflow.include(snakefile)
-except IndentationError as e:
-    print(e)
-finally:
-    assert workflow.config != {}
-    print("Caught error, config read successfully.")
-    config=workflow.config
-
+# Set this manually when reusing old models
 #%%
     
 # official template
@@ -137,6 +128,31 @@ def get_data(year):
     return tab
 
 # %%
+# costs = pd.read_csv(
+#     f"results/{config["run"]["name"]}/csvs/costs.csv",
+#     index_col=[0,1,2], 
+#     names=["variable", "capital", "type", *years],
+# )
+# "2005", "2010", "2015", "2020", "2025", "2030", "2035", 
+
+
+# "2040", "2045", "2050", "2060", "2070", "2080", "2090", "2100"])
+n = n20 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2020}.nc")
+
+
+n30 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2030}.nc")
+
+n40 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2040}.nc")
+
+n50 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2050}.nc")
+
+kwargs = {
+    'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+    'nice_names': False,
+}
+year=2020
+region="DE"
+# %%
 
 
 yearly_dfs = map(get_data, years)
@@ -157,27 +173,6 @@ df.to_excel(
 # !: Check for integer zeros in the xlsx-file. They may indicate missing
 # technologies
 
-# %%
-# costs = pd.read_csv(
-#     f"results/{config["run"]["name"]}/csvs/costs.csv",
-#     index_col=[0,1,2], 
-#     names=["variable", "capital", "type", *years],
-# )
-# "2005", "2010", "2015", "2020", "2025", "2030", "2035", 
-
-
-# "2040", "2045", "2050", "2060", "2070", "2080", "2090", "2100"])
-n = n20 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2020}.nc")
-
-
-n30 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2030}.nc")
-
-n40 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2040}.nc")
-
-n50 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2050}.nc")
-
-
-region="DE"
 # # %% OLD
  
 # It's important to also regard the bus carrier "co2 stored", for this to
