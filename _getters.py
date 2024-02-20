@@ -1005,15 +1005,20 @@ def get_secondary_energy(n, region):
 
     return var
 
-def get_final_energy(n, region, industry_demand):
+def get_final_energy(n, region, _industry_demand):
     var = {}
 
+    industry_demand = _industry_demand.filter(
+        like=region, axis=0,
+    ).sum().multiply(TWh2PJ)
 
     var["Final Energy|Industry excl Non-Energy Use|Electricity"] = \
-        sum_load(n, "industry electricity", region)
-    
+        industry_demand.get("electricity")
+        # or use: sum_load(n, "industry electricity", region)
+
     var["Final Energy|Industry excl Non-Energy Use|Heat"] = \
-        sum_load(n, "low-temperature heat for industry", region)
+        industry_demand.get("low-temperature heat")
+        #sum_load(n, "low-temperature heat for industry", region)
     
     # var["Final Energy|Industry excl Non-Energy Use|Solar"] = \
     # !: Included in |Heat
@@ -1021,34 +1026,30 @@ def get_final_energy(n, region, industry_demand):
     # var["Final Energy|Industry excl Non-Energy Use|Geothermal"] = \
     # Not implemented
 
-    var["Final Energy|Industry excl Non-Energy Use|Gases"] = TWh2PJ * (
-        industry_demand[
-            ["methane"]
-        ].filter(like=region, axis=0).values.sum()
+    var["Final Energy|Industry excl Non-Energy Use|Gases"] = \
+        industry_demand.get("methane")
     )
-    # ! "gas for industry" is not regionally resolved
-    # !!! probably this value is too low because instant electrification
-    # in 2020 / 2025 is assumed
-    
-    
+    # "gas for industry" is now regionally resolved and could be used here
+
     # var["Final Energy|Industry excl Non-Energy Use|Power2Heat"] = \
     # Q: misleading description
 
     var["Final Energy|Industry excl Non-Energy Use|Hydrogen"] = \
-        sum_load(n, "H2 for industry", region)
+        industry_demand.get("hydrogen")
+        # or "H2 for industry" load 
     
 
-    var["Final Energy|Industry excl Non-Energy Use|Liquids"] = \
-        sum_load(n, "naphtha for industry", region)
+    #var["Final Energy|Industry excl Non-Energy Use|Liquids"] = \
+    #   sum_load(n, "naphtha for industry", region)
+    #TODO This is plastics not liquids for industry! Look in industry demand!
     
 
     # var["Final Energy|Industry excl Non-Energy Use|Other"] = \
 
-    var["Final Energy|Industry excl Non-Energy Use|Solids"] = TWh2PJ * (
-        industry_demand[
-            ["coal", "coke", "solid biomass"]
-        ].filter(like=region, axis=0).values.sum()
-    )
+    var["Final Energy|Industry excl Non-Energy Use|Solids"] = \
+        industry_demand.get(["coal", "coke", "solid biomass"])
+    
+    # Why is AMMONIA zero? Is all naphtha just plastic?
         
     # var["Final Energy|Industry excl Non-Energy Use|Non-Metallic Minerals"] = \
     # var["Final Energy|Industry excl Non-Energy Use|Chemicals"] = \
