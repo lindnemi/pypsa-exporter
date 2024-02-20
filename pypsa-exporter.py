@@ -153,6 +153,14 @@ kwargs = {
 year=2020
 region="DE"
 
+industry_demand = pd.read_csv(
+    "resources/industrial_energy_demand_elec_s{simpl}_{clusters}_{year}.csv".format(
+        year=year, 
+        **permutations_dicts[0],
+    ), 
+    index_col="TWh/a (MtCO2/a)",
+)
+
 yearly_dfs = map(get_data, years)
 
 df = reduce(
@@ -199,6 +207,13 @@ kwargs = {
 }
 year=2020
 region="DE"
+industry_demand = pd.read_csv(
+    "resources/industrial_energy_demand_elec_s{simpl}_{clusters}_{year}.csv".format(
+        year=year, 
+        **permutations_dicts[0],
+    ), 
+    index_col="TWh/a (MtCO2/a)",
+)
 # %%
 
 
