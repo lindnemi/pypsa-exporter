@@ -1020,47 +1020,70 @@ def get_secondary_energy(n, region):
         ].sum()
     )
 
-    var["Secondary Energy|Hydrogen|Electricity"] = \
-        sum_link_output(n, 'H2 Electrolysis', region)
-    # Q: correct units?
-    
-    var["Secondary Energy|Hydrogen|Gas"] = \
-        sum_link_output(n, ["SMR", "SMR CC"], region)
-    # Q: Why does SMR not consume heat or electricity?
+    hydrogen_production = n.statistics.supply(
+        bus_carrier="H2", **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ)
 
+    var["Secondary Energy|Hydrogen|Electricity"] = \
+        hydrogen_production.get('H2 Electrolysis', 0)
+
+    var["Secondary Energy|Hydrogen|Gas"] = \
+        hydrogen_production.get(["SMR","SMR CC"]).sum()
+
+    assert isclose(
+        var["Secondary Energy|Hydrogen|Electricity"] 
+            + var["Secondary Energy|Hydrogen|Gas"],
+        hydrogen_production[
+            ~hydrogen_production.index.isin(
+                ["H2", "H2 pipeline", "H2 pipeline (Kernnetz)"]
+            )
+        ].sum()
+    )
+
+    oil_production = n.statistics.supply(
+        bus_carrier="oil", **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ)
+
+    assert oil_production.size == 1 # only Fischer-Tropsch
 
     var["Secondary Energy|Liquids|Hydrogen"] = \
-        sum_link_output(
-            n,
-            [
-                "methanolisation",
-                "Fischer-Tropsch",
-            ],
-            region,
-        )
+        oil_production.get("Fischer-Tropsch", 0)
     
+    methanol_production = n.statistics.supply(
+        bus_carrier="methanol", **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ)
+
+    assert methanol_production.size <= 1 # only methanolisation
+
+    var["Secondary Energy|Other Carrier"] = \
+    var["Production|Chemicals|Methanol"] = \
+        methanol_production.get("methanolisation", 0)
+    # Methanol should probably not be in Liquids
+    # Remeber to specify that Other Carrier == Methanol in Comments Tab
+
+
+    gas_production = n.statistics.supply(
+        bus_carrier="gas", **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ).drop(
+        ["gas", "gas pipeline", "gas pipeline new"]
+    ) # drop imports, stores and transmission
+
+
     var["Secondary Energy|Gases|Hydrogen"] = \
-        sum_link_output(
-            n,
-            [
-                "Sabatier",
-            ],
-            region,
-        )
+        gas_production.get("Sabatier", 0)
     
     var["Secondary Energy|Gases|Biomass"] = \
-        sum_link_output(
-            n,
-            [
-                "biogas to gas",
-                "biogas to gas CC",
-            ],
-            region,
-        )
+        gas_production.filter(like="biogas to gas").sum()
     # Q: biogas to gas is an EU Bus and gets filtered out by "region"
     # Fixed by biomass_spatial: True
-
-
 
     return var
 
