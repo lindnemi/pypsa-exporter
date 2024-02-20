@@ -979,8 +979,8 @@ def get_secondary_energy(n, region):
 
     assert methanol_production.size <= 1 # only methanolisation
 
+    # var["Production|Chemicals|Methanol"] = \ # here units are Mt/year
     var["Secondary Energy|Other Carrier"] = \
-    var["Production|Chemicals|Methanol"] = \
         methanol_production.get("methanolisation", 0)
     # Methanol should probably not be in Liquids
     # Remeber to specify that Other Carrier == Methanol in Comments Tab
