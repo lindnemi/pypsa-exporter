@@ -806,75 +806,217 @@ def get_primary_energy(n, region):
 
 
 def get_secondary_energy(n, region):
+    kwargs = {
+        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+        'nice_names': False,
+    }
     var = pd.Series()
 
-    var["Secondary Energy|Electricity|Coal|Hard Coal"] = \
-        sum_link_output(n, "coal", region)
-    
+    electricity_supply = n.statistics.supply(
+        bus_carrier=["low voltage", "AC"], **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ).drop(
+        ["AC", "DC", "electricity distribution grid" ]
+    )
 
+    var["Secondary Energy|Electricity|Coal|Hard Coal"] = \
+        electricity_supply.get("coal", 0)
+    
+    var["Secondary Energy|Electricity|Coal|Lignite"] = \
+        electricity_supply.get("lignite", 0)
+    
     var["Secondary Energy|Electricity|Coal"] = (
         var["Secondary Energy|Electricity|Coal|Hard Coal"] 
-        + sum_link_output(n, "lignite", region)
+        + var["Secondary Energy|Electricity|Coal|Lignite"]
     )
     
     var["Secondary Energy|Electricity|Oil"] = \
-        sum_link_output(n, "oil", region)
+        electricity_supply.get("oil", 0)
     
     var["Secondary Energy|Electricity|Gas"] = \
-        sum_link_output(
-            n,
+        electricity_supply.reindex(
             [
                 'CCGT',
                 'OCGT',
                 'urban central gas CHP',
                 'urban central gas CHP CC',
             ],
-            region,
-        )
-
-    var["Secondary Energy|Electricity|Biomass"] = \
-        sum_link_output(
-            n,
-            [
-                'urban central solid biomass CHP',
-                'urban central solid biomass CHP CC',
-            ],
-            region,
-        )
-    # ! Biogas to gas should go into this category
-    # How to do that? (trace e.g., biogas to gas -> CCGT)
-    # If so: Should double counting with |Gas be avoided?
-
+        ).sum()
+    
     var["Secondary Energy|Electricity|Fossil"] = (
         var["Secondary Energy|Electricity|Gas"]
         + var["Secondary Energy|Electricity|Oil"]
         + var["Secondary Energy|Electricity|Coal"]
     )
 
-    var["Secondary Energy|Electricity|Hydro"] = (
-        sum_storage_unit_output(n, ["PHS", "hydro"], region)
-        + sum_generator_output(n, "ror", region)
+    var["Secondary Energy|Electricity|Biomass|w/o CCS"] = \
+        electricity_supply.get('urban central solid biomass CHP', 0)
+    var["Secondary Energy|Electricity|Biomass|w/ CCS"] = \
+        electricity_supply.get('urban central solid biomass CHP CC', 0)
+    var["Secondary Energy|Electricity|Biomass"] = (
+        var["Secondary Energy|Electricity|Biomass|w/o CCS"] 
+        + var["Secondary Energy|Electricity|Biomass|w/ CCS"] 
     )
-    # Q: PHS produces negative electricity, because of storage losses
-    # Q: Should it be considered here??
-    var["Secondary Energy|Heat|Gas"] = (
-        sum_link_output(
-            n,
-            n.links.carrier.filter(like="oil boiler").unique().tolist(),
-            region,
-        ) 
-        + sum_link_output(
-            n,
-            [
-                'urban central gas CHP',
-                'urban central gas CHP CC',
-            ],
-            region,
-            port="p2"
-        ) 
-    )
-    # Q: Make sure to provide a comprehensive list of boilers
+    # ! Biogas to gas should go into this category
+    # How to do that? (trace e.g., biogas to gas -> CCGT)
+    # If so: Should double counting with |Gas be avoided?
+    # -> Might use gas_fossil_fraction just like above  
 
+
+    var["Secondary Energy|Electricity|Hydro"] = (
+        electricity_supply.get("hydro")
+        + electricity_supply.get("ror")
+    )
+    # ! Neglecting PHS here because it is storage infrastructure
+
+    var["Secondary Energy|Electricity|Nuclear"] = \
+        electricity_supply.filter(like="nuclear").sum()
+    var["Secondary Energy|Electricity|Solar"] = \
+        electricity_supply.filter(like="solar").sum()
+    var["Secondary Energy|Electricity|Wind|Offshore"] = \
+        electricity_supply.get("onwind")
+    var["Secondary Energy|Electricity|Wind|Onshore"] = \
+        electricity_supply.filter(like="offwind").sum()
+    var["Secondary Energy|Electricity|Wind"] = (
+        var["Secondary Energy|Electricity|Wind|Offshore"]
+        + var["Secondary Energy|Electricity|Wind|Onshore"]
+    )
+    var["Secondary Energy|Electricity|Non-Biomass Renewables"] = (
+        var["Secondary Energy|Electricity|Hydro"]
+        + var["Secondary Energy|Electricity|Solar"]
+        + var["Secondary Energy|Electricity|Wind"]
+    )
+
+    var["Secondary Energy|Electricity|Hydrogen"] = \
+        electricity_supply.get("H2 Fuel Cell", 0)
+    # ! Add H2 Turbines if they get implemented
+
+    var["Secondary Energy|Electricity|Curtailment"] = \
+        n.statistics.curtailment(
+            bus_carrier=["AC", "low voltage"], **kwargs
+        ).filter(like=region).multiply(MWh2PJ).values.sum()
+    
+
+    var["Secondary Energy|Electricity|Storage Losses"] = \
+        n.statistics.withdrawal(
+            bus_carrier=["AC", "low voltage"], **kwargs
+        ).filter(like=region).groupby(["carrier"]).sum().reindex(
+            [
+                "BEV charger", 
+                "battery charger", 
+                "home battery charger",
+                "PHS",
+            ]
+        ).subtract(
+            n.statistics.supply(
+                bus_carrier=["AC", "low voltage"], **kwargs
+            ).filter(like=region).groupby(["carrier"]).sum().reindex(
+                [
+                    "V2G", 
+                    "battery discharger", 
+                    "home battery discharger",
+                    "PHS",
+                ]
+            )
+        ).multiply(MWh2PJ).sum()
+
+    var["Secondary Energy|Electricity|Transmission Losses"] = \
+        n.statistics.withdrawal(
+            bus_carrier=["AC", "low voltage"], **kwargs
+        ).filter(like=region).groupby(["carrier"]).sum().get(
+            ["AC", "DC", "electricity distribution grid"]
+        ).subtract(
+            n.statistics.supply(
+                bus_carrier=["AC", "low voltage"], **kwargs
+            ).filter(like=region).groupby(["carrier"]).sum().get(
+                ["AC", "DC", "electricity distribution grid"]
+            )
+        ).multiply(MWh2PJ).sum()
+
+    # supply - withdrawal
+    # var["Secondary Energy|Electricity|Storage"] = \
+    var["Secondary Energy|Electricity"] = (
+        var["Secondary Energy|Electricity|Fossil"]
+        + var["Secondary Energy|Electricity|Biomass"]
+        + var["Secondary Energy|Electricity|Non-Biomass Renewables"]
+        + var["Secondary Energy|Electricity|Nuclear"]
+        #+ var["Secondary Energy|Electricity|Transmission Losses"]
+        #+ var["Secondary Energy|Electricity|Storage Losses"]
+        + var["Secondary Energy|Electricity|Hydrogen"]
+    )
+
+    assert isclose(
+        electricity_supply[
+            ~electricity_supply.index.str.contains(
+                "PHS"
+                "|battery discharger"
+                "|home battery discharger"
+                "|V2G"
+            )
+        ].sum(),
+        var["Secondary Energy|Electricity"],
+    )
+
+    heat_supply = n.statistics.supply(
+        bus_carrier=[
+            "urban central heat", "urban decentral heat", "rural heat"
+        ], **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ)
+
+    var["Secondary Energy|Heat|Gas"] = \
+        heat_supply.filter(like="gas").sum()
+    # !!! Again, keep the CHPs in mind! 
+    # Here the heat output is considered, but not for primary input
+    
+
+    var["Secondary Energy|Heat|Biomass"] = \
+        heat_supply.filter(like="biomass").sum()
+    # var["Secondary Energy|Heat|Coal"] = \
+    # var["Secondary Energy|Heat|Geothermal"] = \
+    # var["Secondary Energy|Heat|Nuclear"] = \
+    # var["Secondary Energy|Heat|Other"] = \
+    # ! Not implemented
+
+    var["Secondary Energy|Heat|Oil"] = \
+        heat_supply.filter(like="oil boiler").sum()
+    
+    var["Secondary Energy|Heat|Solar"] = \
+        heat_supply.filter(like="solar thermal").sum()
+    
+    var["Secondary Energy|Heat|Electricity|Heat Pumps"] = \
+        heat_supply.filter(like="heat pump").sum()
+    var["Secondary Energy|Heat|Electricity|Resistive"] = \
+        heat_supply.filter(like="resistive heater").sum()
+    var["Secondary Energy|Heat|Electricity"] = (
+        var["Secondary Energy|Heat|Electricity|Heat Pumps"] 
+        + var["Secondary Energy|Heat|Electricity|Resistive"] 
+    )
+    var["Secondary Energy|Heat|Processes"] = \
+        heat_supply.reindex(
+            [
+                "Fischer-Tropsch",
+                "H2 Fuel Cell", 
+                "H2 Electrolysis",
+                "Sabatier",
+                "methanolisation",
+            ]
+        ).sum()
+    
+    var["Secondary Energy|Heat"] = (
+        var["Secondary Energy|Heat|Gas"]
+        + var["Secondary Energy|Heat|Biomass"]
+        + var["Secondary Energy|Heat|Oil"]
+        + var["Secondary Energy|Heat|Solar"]
+        + var["Secondary Energy|Heat|Electricity"]
+        + var["Secondary Energy|Heat|Processes"]
+    )
+    assert isclose(
+        var["Secondary Energy|Heat"],
+        heat_supply.sum()
+    )
 
     var["Secondary Energy|Hydrogen|Electricity"] = \
         sum_link_output(n, 'H2 Electrolysis', region)
