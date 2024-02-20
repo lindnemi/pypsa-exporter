@@ -1015,7 +1015,9 @@ def get_secondary_energy(n, region):
     )
     assert isclose(
         var["Secondary Energy|Heat"],
-        heat_supply.sum()
+        heat_supply[
+            ~heat_supply.index.str.contains("discharger")
+        ].sum()
     )
 
     var["Secondary Energy|Hydrogen|Electricity"] = \
