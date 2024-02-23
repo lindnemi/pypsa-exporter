@@ -1005,12 +1005,16 @@ def get_secondary_energy(n, region):
 
     return var
 
-def get_final_energy(n, region, _industry_demand):
+def get_final_energy(n, region, _industry_demand, _energy_totals):
+
+
     var = {}
+
+    energy_totals = _energy_totals.loc[region[0:2]]
 
     industry_demand = _industry_demand.filter(
         like=region, axis=0,
-    ).sum().multiply(TWh2PJ)
+    ).sum()
 
     var["Final Energy|Industry excl Non-Energy Use|Electricity"] = \
         industry_demand.get("electricity")
@@ -1028,7 +1032,6 @@ def get_final_energy(n, region, _industry_demand):
 
     var["Final Energy|Industry excl Non-Energy Use|Gases"] = \
         industry_demand.get("methane")
-    )
     # "gas for industry" is now regionally resolved and could be used here
 
     # var["Final Energy|Industry excl Non-Energy Use|Power2Heat"] = \
@@ -1065,110 +1068,140 @@ def get_final_energy(n, region, _industry_demand):
 
 
 
+    kwargs = {
+        'groupby': n.statistics.groupers.get_name_bus_and_carrier,
+        'nice_names': False,
+    }
 
     # Final energy is delivered to the consumers
     low_voltage_electricity = n.statistics.withdrawal(
         bus_carrier="low voltage", 
-        groupby=n.statistics.groupers.get_name_bus_and_carrier,
+        **kwargs,
     ).filter(
         like=region,
-        axis=0,
-    ).groupby("carrier").sum()
+    ).groupby("carrier").sum().multiply(MWh2PJ)
     
     var["Final Energy|Residential and Commercial|Electricity"] = \
-        MWh2PJ * low_voltage_electricity[
-            # carrier does not contain one of the following three substrings
+        low_voltage_electricity[
+            # carrier does not contain one of the following substrings
             ~low_voltage_electricity.index.str.contains(
-                "urban central|industry|agriculture"
+                "urban central|industry|agriculture|charger"
+                # Excluding chargers (battery and EV)
             )
         ].sum()
-    
 
     # urban decentral heat and rural heat are delivered as different forms of energy
     # (gas, oil, biomass, ...)
-    urban_decentral_heat_withdrawal = n.statistics.withdrawal(
-        bus_carrier="urban decentral heat", 
-        groupby=n.statistics.groupers.get_name_bus_and_carrier,
+    decentral_heat_withdrawal = n.statistics.withdrawal(
+        bus_carrier=["rural heat", "urban decentral heat"], 
+        **kwargs,
     ).filter(
         like=region,
-        axis=0,
-    ).groupby("carrier").sum()
+    ).groupby("carrier").sum().multiply(MWh2PJ)
 
-    urban_decentral_heat_residential_and_commercial_fraction = (
-        urban_decentral_heat_withdrawal["urban decentral heat"] 
-        / urban_decentral_heat_withdrawal.sum()
+    decentral_heat_residential_and_commercial_fraction = (
+        decentral_heat_withdrawal.get(
+            ["rural heat", "urban decentral heat"]
+        ).sum() / decentral_heat_withdrawal.sum()
     )
 
-    urban_decentral_heat_supply = n.statistics.supply(
-        bus_carrier="urban decentral heat", 
-        groupby=n.statistics.groupers.get_name_bus_and_carrier,
+    decentral_heat_supply_rescom = n.statistics.supply(
+        bus_carrier=["rural heat", "urban decentral heat"], 
+        **kwargs,
     ).filter(
         like=region,
-        axis=0,
-    ).groupby("carrier").sum()
-
-    rural_heat_withdrawal = n.statistics.withdrawal(
-        bus_carrier="rural heat", 
-        groupby=n.statistics.groupers.get_name_bus_and_carrier,
-    ).filter(
-        like=region,
-        axis=0,
-    ).groupby("carrier").sum()
-
-    rural_heat_residential_and_commercial_fraction = (
-        rural_heat_withdrawal["rural heat"] 
-        / rural_heat_withdrawal.sum()
+    ).groupby("carrier").sum().multiply(MWh2PJ).multiply(
+        decentral_heat_residential_and_commercial_fraction
     )
-
-    rural_heat_supply = n.statistics.supply(
-        bus_carrier="rural heat", 
-        groupby=n.statistics.groupers.get_name_bus_and_carrier,
-    ).filter(
-        like=region,
-        axis=0,
-    ).groupby("carrier").sum()
-
     # Dischargers probably should not be considered, to avoid double counting
 
-    #var["Final Energy|Residential and Commercial|Gases"] = \
+    var["Final Energy|Residential and Commercial|Heat"] = (
+        sum_load(n, "urban central heat", region) # Maybe use n.statistics instead
+        + decentral_heat_supply_rescom.filter(like="solar thermal").sum()
+    )
+        # Assuming for solar thermal secondary energy == Final energy
 
+    var["Final Energy|Residential and Commercial|Gases"] = \
+        decentral_heat_supply_rescom.filter(like="gas boiler").sum()
 
-    # Only urban central directly delivers heat
-    var["Final Energy|Residential and Commercial|Heat"] = \
-        sum_load(n, "urban central heat", region)
     # var["Final Energy|Residential and Commercial|Hydrogen"] = \
-    # var["Final Energy|Residential and Commercial|Liquids"] = \
+    # ! Not implemented
+
+    var["Final Energy|Residential and Commercial|Liquids"] = \
+        decentral_heat_supply_rescom.filter(like="oil boiler").sum()
+    
     # var["Final Energy|Residential and Commercial|Other"] = \
-    # var["Final Energy|Residential and Commercial|Solids"] = \
-    # var["Final Energy|Residential and Commercial|Solids|Biomass"] = \
     # var["Final Energy|Residential and Commercial|Solids|Coal"] = \
+    # ! Not implemented 
+
+    var["Final Energy|Residential and Commercial|Solids"] = \
+    var["Final Energy|Residential and Commercial|Solids|Biomass"] = \
+        decentral_heat_supply_rescom.filter(like="biomass boiler").sum()
+
     # Q: Everything else seems to be not implemented
 
     var["Final Energy|Residential and Commercial"] = (
         var["Final Energy|Residential and Commercial|Electricity"]
         + var["Final Energy|Residential and Commercial|Heat"]
+        + var["Final Energy|Residential and Commercial|Gases"]
+        + var["Final Energy|Residential and Commercial|Liquids"]
+        + var["Final Energy|Residential and Commercial|Solids"]
     )
 
     # var["Final Energy|Transportation|Other"] = \
 
-    var["Final Energy|Transportation"] = \
-        sum_load(
-            n,
-            [
-                "land transport oil",
-                "land transport EV",
-                "land transport fuel cell",
-                "shipping oil", 
-                "shipping methanol",
-                # "H2 for shipping" # not used
-                "kerosene for aviation",            
-            ],
-            region
-        )
+    var["Final Energy|Transportation|Electricity"] = \
+        sum_load(n, "land transport EV", region)
+    
+    # var["Final Energy|Transportation|Gases"] = \
+    # var["Final Energy|Transportation|Gases|Natural Gas"] = \
+    # var["Final Energy|Transportation|Gases|Biomass"] = \
+    # var["Final Energy|Transportation|Gases|Efuel"] = \
+    # var["Final Energy|Transportation|Gases|Synthetic Fossil"] = \
+    # ! Not implemented
+
+    var["Final Energy|Transportation|Hydrogen"] = \
+        sum_load(n, "land transport fuel cell", region)
+        # ?? H2 for shipping
+    
+    var["Final Energy|Transportation|Liquids"] = \
+        sum_load(n, "land transport oil", region)
+    # var["Final Energy|Transportation|Liquids|Biomass"] = \
+    # var["Final Energy|Transportation|Liquids|Synthetic Fossil"] = \
+    # var["Final Energy|Transportation|Liquids|Petroleum"] = \
+    # var["Final Energy|Transportation|Liquids|Efuel"] = \
+    # ! Could be interesting, but cumbersome to compute (Fischer Tropsch fraction)
+
+
+
+    var["Final Energy|Bunkers|Aviation"] = \
+    var["Final Energy|Bunkers|Aviation|Liquids"] = \
+        sum_load(n, "kerosene for aviation", region)
+
+    var["Final Energy|Bunkers|Navigation"] = \
+    var["Final Energy|Bunkers|Navigation|Liquids"] = \
+        sum_load(n, ["shipping oil", "shipping methanol"], region)
+    # Q: How to separate international from national demand
+        
+    # var["Final Energy|Bunkers|Navigation|Gases"] = \
+    # ! Not implemented
+    # var["Final Energy|Bunkers|Navigation|Hydrogen"] = \
+    # ! Not used
+
+    var["Final Energy|Bunkers"] = \
+        var["Final Energy|Bunkers|Navigation"] \
+        + var["Final Energy|Bunkers|Aviation"]
+
+    var["Final Energy|Transportation"] = (
+        var["Final Energy|Transportation|Electricity"]
+        + var["Final Energy|Transportation|Liquids"]
+        + var["Final Energy|Transportation|Hydrogen"]
+    )
+
+    # With n.statistics this is not so easy, since e.g. land transport EV is connected
+    # to low voltage bus
     # !!! From every use of shipping and aviation carriers, we should find a way
     # to separate domestic from international contributions
-
-
     
     var["Final Energy|Agriculture|Electricity"] = \
         sum_load(n, "agriculture electricity", region)
@@ -1182,6 +1215,43 @@ def get_final_energy(n, region, _industry_demand):
         + var["Final Energy|Agriculture|Heat"]
         + var["Final Energy|Agriculture|Liquids"]
     )
+
+    assert isclose(
+        var["Final Energy|Agriculture"],
+        energy_totals.get("total agriculture")
+    ) 
+    # It's nice to do these double checks, but seems to be less
+    # straightforward for the other categories
+
+
+    # var["Final Energy"] = \
+    # var["Final Energy incl Non-Energy Use incl Bunkers"] = \
+
+    # var["Final Energy|Non-Energy Use|Liquids"] = \
+    var["Final Energy|Non-Energy Use"] = \
+        industry_demand.get("naphtha") # This is essentially plastics
+
+    # var["Final Energy|Non-Energy Use|Gases"] = \
+    # var["Final Energy|Non-Energy Use|Solids"] = \
+    # var["Final Energy|Non-Energy Use|Hydrogen"] = \
+    # ! Not implemented 
+
+    var["Final Energy|Electricity"] = (
+        var["Final Energy|Agriculture|Electricity"]
+        + var["Final Energy|Residential and Commercial|Electricity"]
+        + var["Final Energy|Transportation|Electricity"]
+        + var["Final Energy|Industry excl Non-Energy Use|Electricity"]
+    )
+    
+    # var["Final Energy|Solids"] = \
+    # var["Final Energy|Solids|Biomass"] = \
+    # var["Final Energy|Gases"] = \
+    # var["Final Energy|Liquids"] = \
+    # var["Final Energy|Heat"] = \
+    # var["Final Energy|Solar"] = \
+    # var["Final Energy|Hydrogen"] = \
+    # var["Final Energy|Geothermal"] = \
+
     return var
 
 

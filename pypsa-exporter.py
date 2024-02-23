@@ -73,7 +73,7 @@ var2unit = pd.read_excel(
 
 #%%
 
-def get_ariadne_var(n, industry_demand, region):
+def get_ariadne_var(n, industry_demand, energy_totals, region):
 
     var = pd.concat([
         get_capacities_electricity(n,region),
@@ -81,8 +81,9 @@ def get_ariadne_var(n, industry_demand, region):
         get_capacities_other(n,region),
         get_primary_energy(n, region),
         get_secondary_energy(n, region),
-        #get_final_energy(n, region, industry_demand),
+        #get_final_energy(n, region, industry_demand, energy_totals),
         #get_prices(n,region), 
+        #get_emissions
     ])
 
 
@@ -99,9 +100,13 @@ def get_data(year):
             **permutations_dicts[0],
         ), 
         index_col="TWh/a (MtCO2/a)",
-    )
+    ).multiply(TWh2PJ)
     industry_demand.index.name = "bus"
-    var = get_ariadne_var(n, industry_demand, "DE")
+    energy_totals = pd.read_csv(
+    "resources/energy_totals.csv",
+    index_col=0,
+).multiply(TWh2PJ)
+    var = get_ariadne_var(n, industry_demand, energy_totals, "DE")
 
     data = []
     for v in var.index:
@@ -158,7 +163,12 @@ industry_demand = pd.read_csv(
         **permutations_dicts[0],
     ), 
     index_col="TWh/a (MtCO2/a)",
-)
+).multiply(TWh2PJ)
+
+energy_totals = pd.read_csv(
+    "resources/energy_totals.csv",
+    index_col=0,
+).multiply(TWh2PJ)
 # %%
 
 
