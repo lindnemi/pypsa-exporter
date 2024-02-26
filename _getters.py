@@ -487,7 +487,7 @@ def get_primary_energy(n, region):
     oil_fossil_fraction = (
         EU_oil_supply.get("Generator").get("oil")
         / EU_oil_supply.sum()
-    )
+    ) # TODO Would be desirable to resolve this regionally
     
     oil_usage = n.statistics.withdrawal(
         bus_carrier="oil", 
@@ -950,9 +950,13 @@ def get_secondary_energy(n, region):
     var["Secondary Energy|Hydrogen|Gas"] = \
         hydrogen_production.get(["SMR","SMR CC"]).sum()
 
-    assert isclose(
+    var["Secondary Energy|Hydrogen"] = (
         var["Secondary Energy|Hydrogen|Electricity"] 
-            + var["Secondary Energy|Hydrogen|Gas"],
+        + var["Secondary Energy|Hydrogen|Gas"]
+    )
+
+    assert isclose(
+        var["Secondary Energy|Hydrogen"],
         hydrogen_production[
             ~hydrogen_production.index.isin(
                 ["H2", "H2 pipeline", "H2 pipeline (Kernnetz)"]
@@ -968,6 +972,7 @@ def get_secondary_energy(n, region):
 
     assert oil_production.size == 1 # only Fischer-Tropsch
 
+    var["Secondary Energy|Liquids"] = \
     var["Secondary Energy|Liquids|Hydrogen"] = \
         oil_production.get("Fischer-Tropsch", 0)
     
@@ -1003,18 +1008,32 @@ def get_secondary_energy(n, region):
     # Q: biogas to gas is an EU Bus and gets filtered out by "region"
     # Fixed by biomass_spatial: True
 
+    var["Secondary Energy|Gases"] = (
+        var["Secondary Energy|Gases|Hydrogen"] 
+        + var["Secondary Energy|Gases|Biomass"] 
+    )
+
+    assert isclose(
+        var["Secondary Energy|Gases"],
+        gas_production.sum()
+    )
+        
+
     return var
 
 def get_final_energy(n, region, _industry_demand, _energy_totals):
 
 
-    var = {}
+    var = pd.Series()
 
     energy_totals = _energy_totals.loc[region[0:2]]
 
     industry_demand = _industry_demand.filter(
         like=region, axis=0,
     ).sum()
+
+    # Q: Pypsa-eur does not strictly distinguish between energy and
+    # non-energy use??
 
     var["Final Energy|Industry excl Non-Energy Use|Electricity"] = \
         industry_demand.get("electricity")
@@ -1040,6 +1059,7 @@ def get_final_energy(n, region, _industry_demand, _energy_totals):
     var["Final Energy|Industry excl Non-Energy Use|Hydrogen"] = \
         industry_demand.get("hydrogen")
         # or "H2 for industry" load 
+    # TODO Is this really all energy-use? Or feedstock as well?
     
 
     #var["Final Energy|Industry excl Non-Energy Use|Liquids"] = \
@@ -1050,7 +1070,7 @@ def get_final_energy(n, region, _industry_demand, _energy_totals):
     # var["Final Energy|Industry excl Non-Energy Use|Other"] = \
 
     var["Final Energy|Industry excl Non-Energy Use|Solids"] = \
-        industry_demand.get(["coal", "coke", "solid biomass"])
+        industry_demand.get(["coal", "coke", "solid biomass"]).sum()
     
     # Why is AMMONIA zero? Is all naphtha just plastic?
         
@@ -1164,25 +1184,60 @@ def get_final_energy(n, region, _industry_demand, _energy_totals):
         sum_load(n, "land transport fuel cell", region)
         # ?? H2 for shipping
     
-    var["Final Energy|Transportation|Liquids"] = \
+
+    international_aviation_fraction = \
+        energy_totals["total international aviation"] / (
+            energy_totals["total domestic aviation"]
+            + energy_totals["total international aviation"]
+        )
+    international_navigation_fraction = \
+    energy_totals["total international navigation"] / (
+        energy_totals["total domestic navigation"]
+        + energy_totals["total international navigation"]
+    )
+
+    EU_oil_supply = n.statistics.supply(bus_carrier="oil")
+    oil_fossil_fraction = (
+        EU_oil_supply.get("Generator").get("oil")
+        / EU_oil_supply.sum()
+    ) 
+
+    var["Final Energy|Transportation|Liquids"] = (
         sum_load(n, "land transport oil", region)
+        + (
+            sum_load(n, "kerosene for aviation", region) 
+            * (1 - international_aviation_fraction)
+        ) + (
+            sum_load(n, ["shipping oil", "shipping methanol"], region)
+            * (1 - international_navigation_fraction)
+        )
+    )
     # var["Final Energy|Transportation|Liquids|Biomass"] = \
     # var["Final Energy|Transportation|Liquids|Synthetic Fossil"] = \
-    # var["Final Energy|Transportation|Liquids|Petroleum"] = \
-    # var["Final Energy|Transportation|Liquids|Efuel"] = \
-    # ! Could be interesting, but cumbersome to compute (Fischer Tropsch fraction)
-
+    var["Final Energy|Transportation|Liquids|Petroleum"] = (
+        var["Final Energy|Transportation|Liquids"]
+        * oil_fossil_fraction
+    )
+        
+    var["Final Energy|Transportation|Liquids|Efuel"] = (
+        var["Final Energy|Transportation|Liquids"]
+        * (1 - oil_fossil_fraction)
+    )
 
 
     var["Final Energy|Bunkers|Aviation"] = \
-    var["Final Energy|Bunkers|Aviation|Liquids"] = \
-        sum_load(n, "kerosene for aviation", region)
+    var["Final Energy|Bunkers|Aviation|Liquids"] = (
+        sum_load(n, "kerosene for aviation", region) 
+        * international_aviation_fraction
+    )
+
 
     var["Final Energy|Bunkers|Navigation"] = \
-    var["Final Energy|Bunkers|Navigation|Liquids"] = \
+    var["Final Energy|Bunkers|Navigation|Liquids"] = (
         sum_load(n, ["shipping oil", "shipping methanol"], region)
-    # Q: How to separate international from national demand
-        
+        * international_navigation_fraction
+    )
+
     # var["Final Energy|Bunkers|Navigation|Gases"] = \
     # ! Not implemented
     # var["Final Energy|Bunkers|Navigation|Hydrogen"] = \
@@ -1197,11 +1252,6 @@ def get_final_energy(n, region, _industry_demand, _energy_totals):
         + var["Final Energy|Transportation|Liquids"]
         + var["Final Energy|Transportation|Hydrogen"]
     )
-
-    # With n.statistics this is not so easy, since e.g. land transport EV is connected
-    # to low voltage bus
-    # !!! From every use of shipping and aviation carriers, we should find a way
-    # to separate domestic from international contributions
     
     var["Final Energy|Agriculture|Electricity"] = \
         sum_load(n, "agriculture electricity", region)
@@ -1220,7 +1270,7 @@ def get_final_energy(n, region, _industry_demand, _energy_totals):
         var["Final Energy|Agriculture"],
         energy_totals.get("total agriculture")
     ) 
-    # It's nice to do these double checks, but seems to be less
+    # It's nice to do these double checks, but it's less
     # straightforward for the other categories
 
 

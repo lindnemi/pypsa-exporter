@@ -81,7 +81,7 @@ def get_ariadne_var(n, industry_demand, energy_totals, region):
         get_capacities_other(n,region),
         get_primary_energy(n, region),
         get_secondary_energy(n, region),
-        #get_final_energy(n, region, industry_demand, energy_totals),
+        get_final_energy(n, region, industry_demand, energy_totals),
         #get_prices(n,region), 
         #get_emissions
     ])
@@ -183,8 +183,8 @@ df = reduce(
 ) # directly use pd.merge?
 
 
-df.to_excel(
-    "/home/micha/git/pypsa-exporter/pypsa_output.xlsx",
+df.to_csv(
+    "/home/micha/git/pypsa-exporter/pypsa_output.csv",
     index=False
 )
 # !: Check for integer zeros in the xlsx-file. They may indicate missing
