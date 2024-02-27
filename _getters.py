@@ -498,7 +498,7 @@ def get_primary_energy(n, region):
         "carrier"
     ).sum().multiply(oil_fossil_fraction).multiply(MWh2PJ)
 
-        ## Primary Energy
+    ## Primary Energy
 
     var["Primary Energy|Oil|Heat"] = \
         oil_usage.filter(like="oil boiler").sum()
@@ -645,7 +645,7 @@ def get_primary_energy(n, region):
         biomass_usage.filter(like="boiler").sum()
     
     # var["Primary Energy|Biomass|Gases"] = \
-    # Gases are only E-Fueld in AriadneDB
+    # Gases are only E-Fuels in AriadneDB
     # Not possibly in an easy way because biogas to gas goes to the
     # gas bus, where it mixes with fossil imports
     
@@ -878,7 +878,9 @@ def get_secondary_energy(n, region):
 
     heat_supply = n.statistics.supply(
         bus_carrier=[
-            "urban central heat", "urban decentral heat", "rural heat"
+            "urban central heat",
+            # rural and urban decentral heat do not produce secondary energy
+            # "urban decentral heat", "rural heat"
         ], **kwargs
     ).filter(like=region).groupby(
         ["carrier"]
@@ -912,7 +914,7 @@ def get_secondary_energy(n, region):
         var["Secondary Energy|Heat|Electricity|Heat Pumps"] 
         + var["Secondary Energy|Heat|Electricity|Resistive"] 
     )
-    var["Secondary Energy|Heat|Processes"] = \
+    var["Secondary Energy|Heat|Other"] = \
         heat_supply.reindex(
             [
                 "Fischer-Tropsch",
@@ -922,14 +924,14 @@ def get_secondary_energy(n, region):
                 "methanolisation",
             ]
         ).sum()
-    
+    # TODO remember to specify in comments
     var["Secondary Energy|Heat"] = (
         var["Secondary Energy|Heat|Gas"]
         + var["Secondary Energy|Heat|Biomass"]
         + var["Secondary Energy|Heat|Oil"]
         + var["Secondary Energy|Heat|Solar"]
         + var["Secondary Energy|Heat|Electricity"]
-        + var["Secondary Energy|Heat|Processes"]
+        + var["Secondary Energy|Heat|Other"]
     )
     assert isclose(
         var["Secondary Energy|Heat"],
@@ -964,17 +966,40 @@ def get_secondary_energy(n, region):
         ].sum()
     )
 
-    oil_production = n.statistics.supply(
-        bus_carrier="oil", **kwargs
-    ).filter(like=region).groupby(
-        ["carrier"]
-    ).sum().multiply(MWh2PJ)
+    EU_oil_supply = n.statistics.supply(bus_carrier="oil")
+    oil_fossil_fraction = (
+        EU_oil_supply.get("Generator").get("oil")
+        / EU_oil_supply.sum()
+    ) # TODO Would be desirable to resolve this regionally
+    
+    oil_fuel_usage = n.statistics.withdrawal(
+        bus_carrier="oil", 
+        **kwargs
+    ).filter(
+        like=region
+    ).groupby(
+        "carrier"
+    ).sum().multiply(oil_fossil_fraction).multiply(MWh2PJ).reindex(
+        [
+            "agriculture machinery oil",
+            "kerosene for aviation",
+            "land transport oil",
+            "naphtha for industry",
+            "shipping oil"
+        ]
+    )
 
-    assert oil_production.size == 1 # only Fischer-Tropsch
+    total_oil_fuel_usage = oil_fuel_usage.sum()
 
-    var["Secondary Energy|Liquids"] = \
+    var["Secondary Energy|Liquids|Oil"] = \
+        total_oil_fuel_usage * oil_fossil_fraction
     var["Secondary Energy|Liquids|Hydrogen"] = \
-        oil_production.get("Fischer-Tropsch", 0)
+        total_oil_fuel_usage * (1 - oil_fossil_fraction)
+    
+    var["Secondary Energy|Liquids"] = (
+        var["Secondary Energy|Liquids|Oil"]
+        + var["Secondary Energy|Liquids|Hydrogen"]
+    )
     
     methanol_production = n.statistics.supply(
         bus_carrier="methanol", **kwargs
@@ -994,28 +1019,55 @@ def get_secondary_energy(n, region):
     gas_production = n.statistics.supply(
         bus_carrier="gas", **kwargs
     ).filter(like=region).groupby(
-        ["carrier"]
+        ["carrier", "component"]
     ).sum().multiply(MWh2PJ).drop(
-        ["gas", "gas pipeline", "gas pipeline new"]
-    ) # drop imports, stores and transmission
+        ["gas pipeline", "gas pipeline new", ("gas", "Store")]
+    ).groupby("carrier").sum() 
+    total_gas_production = gas_production.sum()
 
+    gas_fuel_usage = n.statistics.withdrawal(
+        bus_carrier="gas", **kwargs
+    ).filter(like=region).groupby(
+        ["carrier"]
+    ).sum().multiply(MWh2PJ).reindex(
+        [
+            "gas for industry",
+            "gas for industry CC",
+            "rural gas boiler",
+            "urban decentral gas boiler"
+        ]
+    ) # Building, Transport and Industry sectors
 
-    var["Secondary Energy|Gases|Hydrogen"] = \
-        gas_production.get("Sabatier", 0)
-    
-    var["Secondary Energy|Gases|Biomass"] = \
-        gas_production.filter(like="biogas to gas").sum()
-    # Q: biogas to gas is an EU Bus and gets filtered out by "region"
-    # Fixed by biomass_spatial: True
+    total_gas_fuel_usage = gas_fuel_usage.sum()
+
+    # Fraction supplied by Hydrogen conversion
+    var["Secondary Energy|Gases|Hydrogen"] = (
+        total_gas_fuel_usage
+        * gas_production.get("Sabatier", 0)
+        / total_gas_production
+    )
+        
+    var["Secondary Energy|Gases|Biomass"] = (
+        total_gas_fuel_usage
+        * gas_production.filter(like="biogas to gas").sum()
+        / total_gas_production
+    )
+        
+    var["Secondary Energy|Gases|Natural Gas"] = (
+        total_gas_fuel_usage
+        * gas_production.get("gas")
+        / total_gas_production
+    )
 
     var["Secondary Energy|Gases"] = (
         var["Secondary Energy|Gases|Hydrogen"] 
-        + var["Secondary Energy|Gases|Biomass"] 
+        + var["Secondary Energy|Gases|Biomass"]
+        + var["Secondary Energy|Gases|Natural Gas"]
     )
 
     assert isclose(
         var["Secondary Energy|Gases"],
-        gas_production.sum()
+        gas_fuel_usage.sum()
     )
         
 
@@ -1301,6 +1353,7 @@ def get_final_energy(n, region, _industry_demand, _energy_totals):
     # var["Final Energy|Solar"] = \
     # var["Final Energy|Hydrogen"] = \
     # var["Final Energy|Geothermal"] = \
+    # ! Not implemented
 
     return var
 
