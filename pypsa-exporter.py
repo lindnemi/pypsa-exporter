@@ -26,7 +26,7 @@ t2Mt = 1e-6
 
 #%%
 
-project_dir = "/home/micha/git/pypsa-ariadne/"
+project_dir = "/home/julian-geis/repos/pypsa-ariadne/"
 snakefile = project_dir + "/workflow/Snakefile"
 
 os.chdir(project_dir)
@@ -39,6 +39,8 @@ try:
     workflow.include(snakefile)
 except IndentationError as e:
     print(e)
+except NameError as ne:
+    print(ne)
 finally:
     assert workflow.config != {}
     print("Caught error, config read successfully.")
@@ -488,7 +490,7 @@ df = reduce(
 
 
 df.to_excel(
-    "/home/micha/git/pypsa-exporter/pypsa_output.xlsx",
+    "/home/julian-geis/repos/pypsa-exporter/pypsa_output.xlsx",
     index=False
 )
 # !: Check for integer zeros in the xlsx-file. They may indicate missing

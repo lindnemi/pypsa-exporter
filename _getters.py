@@ -6,33 +6,86 @@ MWh2PJ = 3.6e-6
 
 #n.statistics.withdrawal(bus_carrier="land transport oil", groupby=groupby, aggregate_time=False).filter(like="DE1 0",axis=0)
 
+# first look at final energy then get variables from presentation
 # convert EURXXXX to EUR2020
 def get_ariadne_prices(n, region):
     var = {}
-    groupby = n.statistics.groupers.get_name_bus_and_carrier
 
-    nodal_flows = n.statistics.withdrawal(
-        bus_carrier="low voltage", 
-        groupby=groupby,
-        aggregate_time=False,
-    ).filter(
-        like=region,
-        axis=0,
-    ).query( # Take care to exclude everything else at this bus
-        "not carrier.str.contains('agriculture')"
-         "& not carrier.str.contains('industry')"
-         "& not carrier.str.contains('urban central')"
-    ).groupby("bus").sum().T 
+    nodal_flows_lw = get_nodal_flows(
+        n, "low voltage", "DE",
+        query = "not carrier.str.contains('agriculture')"
+                "& not carrier.str.contains('industry')"
+                "& not carrier.str.contains('urban central')"
+            )
 
-    nodal_prices = n.buses_t.marginal_price[nodal_flows.columns] 
+    nodal_prices_lw = n.buses_t.marginal_price[nodal_flows_lw.columns] 
 
     # electricity price at the final level in the residential sector. Prices should include the effect of carbon prices.
     var["Price|Final Energy|Residential|Electricity"] = \
-        nodal_flows.mul(
-            nodal_prices
+        nodal_flows_lw.mul(
+            nodal_prices_lw
         ).sum().div(
-            nodal_flows.sum()
+            nodal_flows_lw.sum()
         ).div(MWh2GJ) # TODO should this be divided by MWh2GJ ???
+    
+    # vars: Tier 1, Category: energy(price)
+
+    nodal_flows_bm = get_nodal_flows(
+        n, "solid biomass", "DE")
+    nodal_prices_bm = n.buses_t.marginal_price[nodal_flows_bm.columns]
+
+    var["Price|Primary Energy|Biomass"] = \
+        nodal_flows_bm.mul(
+            nodal_prices_bm
+        ).sum().div(
+            nodal_flows_bm.sum()
+        ).div(MWh2GJ)
+    
+    # Price|Primary Energy|Coal
+    # is coal also lignite?
+    nodal_flows_coal = get_nodal_flows(
+        n, "coal", "DE")
+    nodal_prices_coal = n.buses_t.marginal_price[nodal_flows_coal.columns]
+
+    var["Price|Primary Energy|Coal"] = \
+        nodal_flows_coal.mul(
+            nodal_prices_coal
+        ).sum().div(
+            nodal_flows_coal.sum()
+        ).div(MWh2GJ)
+    
+    # Price|Primary Energy|Gas
+    nodal_flows_gas = get_nodal_flows(
+        n, "gas", "DE")
+    nodal_prices_gas = n.buses_t.marginal_price[nodal_flows_gas.columns]
+
+    var["Price|Primary Energy|Gas"] = \
+        nodal_flows_gas.mul(
+            nodal_prices_gas
+        ).sum().div(
+            nodal_flows_gas.sum()
+        ).div(MWh2GJ)
+    
+    # Price|Primary Energy|Oil
+    nodal_flows_oil = get_nodal_flows(
+        n, "oil", "DE")
+    nodal_prices_oil = n.buses_t.marginal_price[nodal_flows_oil.columns]
+
+    var["Price|Primary Energy|Oil"] = \
+        nodal_flows_oil.mul(
+            nodal_prices_oil
+        ).sum().div(
+            nodal_flows_oil.sum()
+        ).div(MWh2GJ)
+    
+    # Price|Secondary Energy|Electricity
+    # Price|Secondary Energy|Gases|Natural Gas
+    # Price|Secondary Energy|Gases|Hydrogen
+    # Price|Secondary Energy|Gases|Biomass
+    # Price|Secondary Energy|Gases|Efuel
+    # Price|Secondary Energy|Hydrogen
+
+
 
     return var
 
@@ -422,7 +475,7 @@ def get_ariadne_capacities(n, region):
 def get_ariadne_final_energy(n, region, industry_demand):
     var = {}
 
-
+    # industry
     var["Final Energy|Industry excl Non-Energy Use|Electricity"] = \
         sum_load(n, "industry electricity", region)
     
@@ -596,3 +649,16 @@ def get_ariadne_final_energy(n, region, industry_demand):
         + var["Final Energy|Agriculture|Liquids"]
     )
     return var
+
+# missing final energy
+# Final Energy
+# Final Energy incl Non-Energy Use incl Bunkers
+# Final Energy|Electricity
+# Final Energy|Solids
+# Final Energy|Solids|Biomass
+# Final Energy|Gases
+# Final Energy|Liquids
+# Final Energy|Heat
+# Final Energy|Solar
+# Final Energy|Hydrogen
+# Final Energy|Geothermal

@@ -16,7 +16,7 @@ dependencies:
 - pandas
 - openpyxl
 - yaml
-- pypsa>=0.25.1
+- pypsa>=0.26.3
 - pyam
 
   # Keep in conda environment when calling ipython

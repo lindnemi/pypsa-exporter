@@ -286,3 +286,17 @@ def get_capacityN(_df, label, region, N=2):
 
 # groupby=n.statistics.groupers.get_name_bus_and_carrier
 # n.statistics.optimal_capacity(bus_carrier="urban central heat", groupby=groupby).filter(like="DE").groupby("carrier").sum()
+
+def get_nodal_flows(n, bus_carrier, region, query='index == index or index != index'):
+    groupby = n.statistics.groupers.get_name_bus_and_carrier
+
+    result = n.statistics.withdrawal(
+        bus_carrier=bus_carrier, 
+        groupby=groupby,
+        aggregate_time=False,
+        ).filter(
+            like=region,
+            axis=0,
+        ).query(query).groupby("bus").sum().T 
+    
+    return result
