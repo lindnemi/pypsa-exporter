@@ -6,3 +6,5 @@ pypsa-to-iamc.py
 pypsa_to_IPCC.py
 .env
 *.pyc
+*.png
+*.csv
