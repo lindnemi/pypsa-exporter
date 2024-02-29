@@ -28,7 +28,7 @@ t2Mt = 1e-6
 
 project_dir = "/home/micha/git/pypsa-ariadne/"
 snakefile = project_dir + "/workflow/Snakefile"
-configfile = project_dir + "results/240216-365H-higherelectrolysis/config.yaml"
+configfile = project_dir + "results/240219-test/normal/config.yaml"
 os.chdir(project_dir)
 
 with open(configfile) as f:
@@ -91,9 +91,9 @@ def get_ariadne_var(n, industry_demand, energy_totals, region):
 
 
 # uses the global variables model, scenario and var2unit. For now.
-def get_data(year):
+def get_data(year,):
     print("Evaluating year ", year, ".", sep="")
-    n = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{year}.nc")
+    n = pypsa.Network(f"results/{config['run']['name'][0]}/postnetworks/{scenario}{year}.nc")
     industry_demand = pd.read_csv(
         "resources/industrial_energy_demand_elec_s{simpl}_{clusters}_{year}.csv".format(
             year=year, 
@@ -142,14 +142,14 @@ def get_data(year):
 
 
 # "2040", "2045", "2050", "2060", "2070", "2080", "2090", "2100"])
-n = n20 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2020}.nc")
+n = n20 = pypsa.Network(f"results/{config['run']['name'][0]}/postnetworks/{scenario}{2020}.nc")
 
 
-n30 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2030}.nc")
+n30 = pypsa.Network(f"results/{config['run']['name'][0]}/postnetworks/{scenario}{2030}.nc")
 
-n40 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2040}.nc")
+n40 = pypsa.Network(f"results/{config['run']['name'][0]}/postnetworks/{scenario}{2040}.nc")
 
-n50 = pypsa.Network(f"results/{config['run']['name']}/postnetworks/{scenario}{2050}.nc")
+n50 = pypsa.Network(f"results/{config['run']['name'][0]}/postnetworks/{scenario}{2050}.nc")
 
 kwargs = {
     'groupby': n.statistics.groupers.get_name_bus_and_carrier,
