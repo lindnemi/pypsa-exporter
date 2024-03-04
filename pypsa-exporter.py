@@ -81,8 +81,8 @@ def get_ariadne_var(n, industry_demand, energy_totals, region):
         get_capacities_other(n,region),
         get_primary_energy(n, region),
         get_secondary_energy(n, region),
-        get_final_energy(n, region, industry_demand, energy_totals),
-        #get_prices(n,region), 
+        #get_final_energy(n, region, industry_demand, energy_totals),
+        get_ariadne_prices(n,region), 
         #get_emissions
     ])
 
