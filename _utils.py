@@ -3,6 +3,7 @@ t2Mt = 1e-6
 MWh2PJ = 3.6e-6
 
 import numpy as np
+import pandas as pd
 import math
 # %% more helpers
 
@@ -320,7 +321,7 @@ def get_nodal_flows(n, bus_carrier, region, query='index == index or index != in
 def price_load(n, load_carrier, region):
 
     load = n.loads[(n.loads.carrier == load_carrier) & (n.loads.bus.str.contains(region))]
-    if load.empty:
+    if n.loads_t.p[load.index].sum().sum() == 0:
         return np.nan, 0
     result = (n.loads_t.p[load.index] * n.buses_t.marginal_price[load.bus].values).sum().sum()
     result /= n.loads_t.p[load.index].sum().sum()
@@ -329,7 +330,7 @@ def price_load(n, load_carrier, region):
 def costs_gen_links(n, region, carrier, gen_bus="p1"):
 
     # CAPEX
-    links = n.links[(n.links.carrier == carrier) & (n.links.bus0.str.contains(region))]
+    links = n.links[(n.links.carrier == carrier) & (n.links.index.str.contains(region))]
     capacity_expansion = links.p_nom_opt - links.p_nom
     capex = (capacity_expansion * n.links.capital_cost[capacity_expansion.index]).sum()
 
@@ -390,3 +391,24 @@ def costs_gen_generators(n, region, carrier):
               
     result = (capex + opex) / gen.sum()
     return result, gen.sum()
+
+import pandas as pd
+import numpy as np
+import math
+
+def get_weighted_costs(costs, flows):
+
+    cleaned_costs = []
+    cleaned_flows = []
+
+    for cost, flow in zip(costs, flows):
+        if not math.isnan(cost) and not math.isnan(flow) and flow != 0:
+            cleaned_costs.append(cost)
+            cleaned_flows.append(flow)
+    
+    if not cleaned_costs or not cleaned_flows:
+        return np.nan
+    
+    df_cleaned = pd.DataFrame({'costs': cleaned_costs, 'flows': cleaned_flows})
+    result = (df_cleaned["costs"] * df_cleaned["flows"]).sum() / df_cleaned["flows"].sum()
+    return result

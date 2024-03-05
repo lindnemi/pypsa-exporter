@@ -37,25 +37,16 @@ def get_ariadne_prices(n, region):
     
     # Price|Primary Energy|Coal
     # is coal also lignite? -> yes according to michas code (coal for industry is already included as it withdraws from coal bus)
-    nodal_flows_coal = get_nodal_flows(n, "coal", "DE")
-    nodal_prices_coal = n.buses_t.marginal_price[nodal_flows_coal.columns]
-    coal_price = nodal_flows_coal.mul(nodal_prices_coal).sum().sum() / nodal_flows_coal.sum().sum()
+    nf_coal = get_nodal_flows(n, "coal", "DE")
+    nodal_prices_coal = n.buses_t.marginal_price[nf_coal.columns]
+    coal_price = nf_coal.mul(nodal_prices_coal).sum().sum() / nf_coal.sum().sum() if nf_coal.sum().sum() > 0 else np.nan
 
-    nodal_flows_lignite = get_nodal_flows(n, "lignite", "DE")
-    nodal_prices_lignite = n.buses_t.marginal_price[nodal_flows_lignite.columns]
-    lignite_price = nodal_flows_lignite.mul(nodal_prices_lignite).sum().sum() / nodal_flows_lignite.sum().sum()
+    nf_lignite = get_nodal_flows(n, "lignite", "DE")
+    nodal_prices_lignite = n.buses_t.marginal_price[nf_lignite.columns]
+    lignite_price = nf_lignite.mul(nodal_prices_lignite).sum().sum() / nf_lignite.sum().sum() if nf_lignite.sum().sum() > 0 else np.nan
 
-    if not (math.isnan(coal_price) or math.isnan(lignite_price)):
-        price_avg = ((nodal_flows_coal.sum() * coal_price).iloc[0] + (nodal_flows_lignite.sum() * lignite_price).iloc[0]) / \
-            (nodal_flows_coal.sum().iloc[0] + nodal_flows_lignite.sum().iloc[0])
-    elif math.isnan(coal_price):
-        price_avg = lignite_price
-    elif math.isnan(lignite_price):
-        price_avg = coal_price
-    else:
-        price_avg = np.nan
-
-    var["Price|Primary Energy|Coal"] = price_avg/ MWh2GJ
+    var["Price|Primary Energy|Coal"] = \
+        get_weighted_costs([coal_price, lignite_price], [nf_coal.sum().sum(), nf_lignite.sum().sum()])/ MWh2GJ
     
     # Price|Primary Energy|Gas
     nodal_flows_gas = get_nodal_flows(n, "gas", "DE")
@@ -83,15 +74,14 @@ def get_ariadne_prices(n, region):
     var["Price|Secondary Energy|Electricity"] = \
     nodal_flows_ac.mul(nodal_prices_ac).sum().sum() / nodal_flows_ac.sum().sum() /MWh2GJ
 
-    # Price|Secondary Energy|Gases|Natural Gas
     var["Price|Secondary Energy|Gases|Natural Gas"] = \
-        costs_gen_generators(n, "gas", region)[0] / MWh2GJ
+        costs_gen_generators(n, region ,"gas")[0] / MWh2GJ
 
     var["Price|Secondary Energy|Gases|Hydrogen"] = \
-        costs_gen_links(n, "Sabatier", region)[0] / MWh2GJ
+        costs_gen_links(n, region, "Sabatier")[0] / MWh2GJ
 
     var["Price|Secondary Energy|Gases|Biomass"] = \
-        costs_gen_links(n, "biogas to gas", region)[0] / MWh2GJ
+        costs_gen_links(n, region, "biogas to gas")[0] / MWh2GJ
     
     # Price|Secondary Energy|Gases|Efuel
     # Price for gaseous Efuels at the secondary level, i.e. for large scale consumers. Prices should include the effect of carbon prices.
@@ -119,7 +109,7 @@ def get_ariadne_prices(n, region):
 
     # !!! mv much higher: check carbon effect!
     var["Price|Final Energy|Residential|Gases"] = \
-        nf_gas_residential.mul(nodal_prices_gas).sum().sum() / nf_gas_residential.sum().sum() / MWh2GJ  
+        nf_gas_residential.mul(nodal_prices_gas).sum().sum() / nf_gas_residential.sum().sum() / MWh2GJ  if nf_gas_residential.sum().sum() > 0 else np.nan
 
     # "Price|Final Energy|Residential|Gases|Natural Gas" ?
     # "Price|Final Energy|Residential|Liquids|Biomass" x
@@ -145,8 +135,9 @@ def get_ariadne_prices(n, region):
         get_weighted_costs_links(carriers, n, "DE") / MWh2GJ
 
     # "Price|Final Energy|Industry|Heat"✓
+
     var["Price|Final Energy|Industry|Liquids"] = \
-        price_load(n, "naphta for industry", region)[0] / (MWh2GJ)
+        price_load(n, "naphtha for industry", region)[0] / MWh2GJ
     
     # "Price|Final Energy|Industry|Hydrogen"✓
 
